@@ -123,6 +123,12 @@
                dmas = <&dma_apbx 0>, <&dma_apbx 1>;
                dma-names = "rx", "tx";
            };
+           lradc@80050000 {
+               compatible = "fsl,imx23-lradc";
+               reg = <0x80050000 0x2000>;
+               interrupts = <36 37 38 39 40 41 42 43 44>;
+               status = "okay";
+           };
        };
    };
 
