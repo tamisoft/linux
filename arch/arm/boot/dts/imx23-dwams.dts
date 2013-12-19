@@ -29,51 +29,43 @@
            pinctrl@80018000 {
                pinctrl-names = "default";
                pinctrl-0 = <&hog_pins_a>;
-
-           hog_pins_a: hog@0 {
-                   reg = <0>;
-                   fsl,pinmux-ids = <
-                       0x2010 /* MX23_PAD_SSP1_DETECT__SSP1_DETECT */
-                   >;
-                   fsl,drive-strength = <0>;
-                   fsl,voltage = <1>;
-                   fsl,pull-up = <0>;
-               };
            
-           mmc1_4bit_pins_a: mmc1-4bit@0 {
-                   reg = <0>;
-                   fsl,pinmux-ids = <
-                       /* 0x1153 MX23_PAD_LCD_CS__GPIO_1_21 , WLAN_IRQ */
-                       0x0002 /* MX23_PAD_GPMI_D00__SSP2_DATA0 */
-                       0x0012 /* MX23_PAD_GPMI_D01__SSP2_DATA1 */
-                       0x0022 /* MX23_PAD_GPMI_D02__SSP2_DATA2 */
-                       0x0032 /* MX23_PAD_GPMI_D03__SSP2_DATA3 */
-                       0x0142 /* MX23_PAD_GPMI_RDY1__SSP2_CMD */
-                       0x0182 /* MX23_PAD_GPMI_WRN__SSP2_SCK */
-                   >;
-                   fsl,drive-strength = <1>;
-                   fsl,voltage = <0>;
-                   fsl,pull-up = <1>;
-               };
-           
-           mmc1_pins_fixup: mmc1-pins-fixup {
-                   fsl,pinmux-ids = <
-                       0x0182 /* MX23_PAD_GPMI_WRN__SSP2_SCK */
-                   >;
-                   fsl,pull-up = <0>;
-               };
-
-           saif0_pins_dwams: saif0@0 {
-               reg = <1>;
-               fsl,pinmux-ids = <
-                   0x1092 /* MX23_PAD_LCD_D09__SAIF1_SDATA0 */
-                   0x10a2 /* MX23_PAD_LCD_D10__SAIF_MCLK_BITCLK */
-                   0x10b2 /* MX23_PAD_LCD_D11__SAIF_LRCLK */
-               >;
-               fsl,drive-strength = <2>;
-               fsl,voltage = <1>;
-               fsl,pull-up = <1>;
-               };
+		hog_pins_a: hog@0 {
+			reg = <0>;
+			fsl,pinmux-ids = <
+				0x2010 /* MX23_PAD_SSP1_DETECT__SSP1_DETECT */
+				0x00b3 /* MX23_PAD_GPMI_D11__GPIO_0_11 */
+				0x00c3 /* MX23_PAD_GPMI_D12__GPIO_0_12 */
+				0x00d3 /* MX23_PAD_GPMI_D13__GPIO_0_13 */
+				0x00e3 /* MX23_PAD_GPMI_D14__GPIO_0_14 */
+			>;
+			fsl,drive-strength = <0>;
+			fsl,voltage = <1>;
+			fsl,pull-up = <0>;
+		};
+				
+		mmc1_4bit_pins_a: mmc1-4bit@0 {
+			reg = <0>;
+			fsl,pinmux-ids = <
+				/* 0x1153 MX23_PAD_LCD_CS__GPIO_1_21 , WLAN_IRQ */
+				0x0002 /* MX23_PAD_GPMI_D00__SSP2_DATA0 */
+				0x0012 /* MX23_PAD_GPMI_D01__SSP2_DATA1 */
+				0x0022 /* MX23_PAD_GPMI_D02__SSP2_DATA2 */
+				0x0032 /* MX23_PAD_GPMI_D03__SSP2_DATA3 */
+				0x0142 /* MX23_PAD_GPMI_RDY1__SSP2_CMD */
+				0x0182 /* MX23_PAD_GPMI_WRN__SSP2_SCK */
+			>;
+			fsl,drive-strength = <1>;
+			fsl,voltage = <0>;
+			fsl,pull-up = <1>;
+		};
+				
+		mmc1_pins_fixup: mmc1-pins-fixup {
+			fsl,pinmux-ids = <
+				0x0182 /* MX23_PAD_GPMI_WRN__SSP2_SCK */
+			>;
+			fsl,pull-up = <0>;
+		};
            };
            
            ssp0: ssp@80010000 {
@@ -131,18 +123,6 @@
                dmas = <&dma_apbx 0>, <&dma_apbx 1>;
                dma-names = "rx", "tx";
            };
-/*
-           saif0: saif@80042000 {
-               compatible = "fsl,imx28-saif";
-               pinctrl-names = "default";
-               pinctrl-0 = <&saif0_pins_dwams>;
-               interrupts = <10>;
-               #clock-cells = <0>;
-               clocks = <&clks 37>;
-               status = "okay";
-           };
-*/         
-           
        };
    };
 
@@ -172,5 +152,28 @@
        audio-codec = <&codec>;
        cpu-dai = <&platform_dai>;
    };
+   gpio-keys {
+   	compatible = "gpio-keys";
 
+        left-key {
+            label = "Left key";
+            gpios = <&gpio0 11 1>;
+            linux,code = <105>; /* KEY_LEFT */
+        };
+        right-key {
+            label = "right key";
+            gpios = <&gpio0 12 1>;
+            linux,code = <106>; /* KEY_RIGHT */
+        };
+        talk-key {
+            label = "talk key";
+            gpios = <&gpio0 13 1>;
+            linux,code = <28>; /* KEY_ENTER */
+        };
+        menu-key {
+            label = "menu key";
+            gpios = <&gpio0 14 1>;
+            linux,code = <139>; /* KEY_MENU */
+        };
+   };
 };
