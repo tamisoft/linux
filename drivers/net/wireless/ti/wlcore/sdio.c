@@ -47,6 +47,10 @@
 #define SDIO_DEVICE_ID_TI_WL1271	0x4076
 #endif
 
+/* Navicron temporary hack for wifi driver */
+extern void imx23_dwams_wlan_on_off(bool enable);
+/* Navicron temporary hack for wifi driver */
+
 static bool dump = false;
 
 struct wl12xx_sdio_glue {
@@ -152,6 +156,10 @@ static int wl12xx_sdio_power_on(struct wl12xx_sdio_glue *glue)
 	int ret;
 	struct sdio_func *func = dev_to_sdio_func(glue->dev);
 	struct mmc_card *card = func->card;
+        
+        /* Navicron temporary hack for wifi driver */
+        imx23_dwams_wlan_on_off(1);
+        /* Navicron temporary hack for wifi driver */
 
 	ret = pm_runtime_get_sync(&card->dev);
 	if (ret) {
@@ -192,7 +200,10 @@ static int wl12xx_sdio_power_off(struct wl12xx_sdio_glue *glue)
 
 	/* Let runtime PM know the card is powered off */
 	pm_runtime_put_sync(&card->dev);
-
+        
+        /* Navicron temporary hack for wifi driver */
+        imx23_dwams_wlan_on_off(0);
+        /* Navicron temporary hack for wifi driver */
 out:
 	return ret;
 }

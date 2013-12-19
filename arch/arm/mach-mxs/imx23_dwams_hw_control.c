@@ -71,6 +71,12 @@ void imx23_dwams_wlan_on_off(bool enable)
    printk( KERN_INFO "---imx23_dwams_wlan_on_off:%d\n", enable );
    gpio_set_value(WLAN_EN, (int)enable);
 }
+
+/* Navicron temporary hack for wifi driver */
+EXPORT_SYMBOL_GPL(imx23_dwams_wlan_on_off);
+/* Navicron temporary hack for wifi driver */
+
+
 static void imx23_dwams_wlan_init(void)
 {
    printk( KERN_INFO "---imx23_dwams_wlan_init\n" );
