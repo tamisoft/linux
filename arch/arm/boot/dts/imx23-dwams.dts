@@ -24,142 +24,198 @@
        reg = <0x40000000 0x08000000>;
    };
 
-   apb@80000000 {
-       apbh@80000000 {
-           pinctrl@80018000 {
-               pinctrl-names = "default";
-               pinctrl-0 = <&hog_pins_a>;
+    apb@80000000 {
+        apbh@80000000 {
+            pinctrl@80018000 {
+                pinctrl-names = "default";
+                pinctrl-0 = <&hog_pins_a>;
            
-		hog_pins_a: hog@0 {
-			reg = <0>;
-			fsl,pinmux-ids = <
-				0x2010 /* MX23_PAD_SSP1_DETECT__SSP1_DETECT */
-				0x00b3 /* MX23_PAD_GPMI_D11__GPIO_0_11 */
-				0x00c3 /* MX23_PAD_GPMI_D12__GPIO_0_12 */
-				0x00d3 /* MX23_PAD_GPMI_D13__GPIO_0_13 */
-				0x00e3 /* MX23_PAD_GPMI_D14__GPIO_0_14 */
-			>;
-			fsl,drive-strength = <0>;
-			fsl,voltage = <1>;
-			fsl,pull-up = <0>;
-		};
-				
-		mmc1_4bit_pins_a: mmc1-4bit@0 {
-			reg = <0>;
-			fsl,pinmux-ids = <
-				/* 0x1153 MX23_PAD_LCD_CS__GPIO_1_21 , WLAN_IRQ */
-				0x0002 /* MX23_PAD_GPMI_D00__SSP2_DATA0 */
-				0x0012 /* MX23_PAD_GPMI_D01__SSP2_DATA1 */
-				0x0022 /* MX23_PAD_GPMI_D02__SSP2_DATA2 */
-				0x0032 /* MX23_PAD_GPMI_D03__SSP2_DATA3 */
-				0x0142 /* MX23_PAD_GPMI_RDY1__SSP2_CMD */
-				0x0182 /* MX23_PAD_GPMI_WRN__SSP2_SCK */
-			>;
-			fsl,drive-strength = <1>;
-			fsl,voltage = <0>;
-			fsl,pull-up = <1>;
-		};
-				
-		mmc1_pins_fixup: mmc1-pins-fixup {
-			fsl,pinmux-ids = <
-				0x0182 /* MX23_PAD_GPMI_WRN__SSP2_SCK */
-			>;
-			fsl,pull-up = <0>;
-		};
-           };
+                hog_pins_a: hog@0 {
+                    reg = <0>;
+                    fsl,pinmux-ids = <
+                        0x2010 /* MX23_PAD_SSP1_DETECT__SSP1_DETECT */
+                        0x00b3 /* MX23_PAD_GPMI_D11__GPIO_0_11 */
+                        0x00c3 /* MX23_PAD_GPMI_D12__GPIO_0_12 */
+                        0x00d3 /* MX23_PAD_GPMI_D13__GPIO_0_13 */
+                        0x00e3 /* MX23_PAD_GPMI_D14__GPIO_0_14 */
+                    >;
+                    fsl,drive-strength = <0>;
+                    fsl,voltage = <1>;
+                    fsl,pull-up = <0>;
+                };
+
+            mmc1_4bit_pins_a: mmc1-4bit@0 {
+                reg = <0>;
+                fsl,pinmux-ids = <
+                    /* 0x1153 MX23_PAD_LCD_CS__GPIO_1_21 , WLAN_IRQ */
+                    0x0002 /* MX23_PAD_GPMI_D00__SSP2_DATA0 */
+                    0x0012 /* MX23_PAD_GPMI_D01__SSP2_DATA1 */
+                    0x0022 /* MX23_PAD_GPMI_D02__SSP2_DATA2 */
+                    0x0032 /* MX23_PAD_GPMI_D03__SSP2_DATA3 */
+                    0x0142 /* MX23_PAD_GPMI_RDY1__SSP2_CMD */
+                    0x0182 /* MX23_PAD_GPMI_WRN__SSP2_SCK */
+                >;
+                fsl,drive-strength = <1>;
+                fsl,voltage = <0>;
+                fsl,pull-up = <1>;
+            };
+
+            mmc1_pins_fixup: mmc1-pins-fixup {
+                fsl,pinmux-ids = <
+                    0x0182 /* MX23_PAD_GPMI_WRN__SSP2_SCK */
+                >;
+                fsl,pull-up = <0>;
+            };
+            display_pins_spi: display-spi@0 {
+                reg = <0>;
+                fsl,pinmux-ids = <
+                    0x0103 /* DISP_MOSI     MX23_PAD_GPMI_CLE__GPIO_0_16 GPIO */
+                    0x0113 /* DISP_SCLK     MX23_PAD_GPMI_ALE__GPIO_0_17 GPIO */
+                    0x10d3 /* DISP_CS       MX23_PAD_LCD_D13__GPIO_1_13  GPIO */
+                >;
+                fsl,drive-strength = <2>; /* 0:4mA, 1:8mA, 2:12mA, 3:16mA */
+                fsl,voltage = <1>; /* 0: 1.8V, 1: 3.3V */
+                fsl,pull-up = <0>;
+            };
+
+            display_pins_ctrl: display-ctrl@0 {
+                reg = <0>;
+                fsl,pinmux-ids = <
+                    0x10e3 /* DISP_ON       MX23_PAD_LCD_D14__GPIO_1_14  GPIO */
+                >;
+                fsl,drive-strength = <2>; /* 0:4mA, 1:8mA, 2:12mA, 3:16mA */
+                fsl,voltage = <1>; /* 0: 1.8V, 1: 3.3V */
+                fsl,pull-up = <0>; //should be 0
+            };
+        };
            
-           ssp0: ssp@80010000 {
-               compatible = "fsl,imx23-mmc";
-               pinctrl-names = "default";
-               pinctrl-0 = <&mmc0_4bit_pins_a &mmc0_pins_fixup>;
-               bus-width = <4>;
-               non-removable;
-               status = "okay";
-           };
+            ssp0: ssp@80010000 {
+                compatible = "fsl,imx23-mmc";
+                pinctrl-names = "default";
+                pinctrl-0 = <&mmc0_4bit_pins_a &mmc0_pins_fixup>;
+                bus-width = <4>;
+                non-removable;
+                status = "okay";
+            };
            
-           ssp1: ssp@80034000 {
-               compatible = "fsl,imx23-mmc";
-               pinctrl-names = "default";
-               pinctrl-0 = <&mmc1_4bit_pins_a &mmc1_pins_fixup>;
-               bus-width = <4>;
-               non-removable;
-               status = "okay";
-           };
+            ssp1: ssp@80034000 {
+                compatible = "fsl,imx23-mmc";
+                pinctrl-names = "default";
+                pinctrl-0 = <&mmc1_4bit_pins_a &mmc1_pins_fixup>;
+                bus-width = <4>;
+                non-removable;
+                status = "okay";
+            };
        
-       };
+        };
 
-       apbx@80040000 {
-           auart0: serial@8006c000 {
-               pinctrl-names = "default";
-               pinctrl-0 = <&auart0_2pins_a>;
-               status = "okay";
-           };
+        apbx@80040000 {
+            pwm: pwm@80064000 {
+                pinctrl-names = "default";
+                pinctrl-0 = <&pwm4_pins_a>;
+                status = "okay";
+            };
 
-           duart: serial@80070000 {
-               pinctrl-names = "default";
-               pinctrl-0 = <&duart_pins_a>;
-               status = "okay";
-           };
+            auart0: serial@8006c000 {
+                pinctrl-names = "default";
+                pinctrl-0 = <&auart0_2pins_a>;
+                status = "okay";
+            };
 
-           usbphy0: usbphy@8007c000 {
-               status = "okay";
-           };
+            duart: serial@80070000 {
+                pinctrl-names = "default";
+                pinctrl-0 = <&duart_pins_a>;
+                status = "okay";
+            };
 
-           codec: mxs-builtin-codec {
-               compatible = "fsl,mxs-builtin-codec";
-               reg = <0x80048000 0x2000>, <0x8004c000 0x2000>,
-                 <0x8005c000 0x2000>;
-               reg-names = "audioout", "audioin", "rtc";
-               clocks = <&clks 31>;
-               clock-names = "filt";
-           };
+            usbphy0: usbphy@8007c000 {
+                status = "okay";
+            };
+
+            codec: mxs-builtin-codec {
+                compatible = "fsl,mxs-builtin-codec";
+                reg = <0x80048000 0x2000>, <0x8004c000 0x2000>,
+                    <0x8005c000 0x2000>;
+                reg-names = "audioout", "audioin", "rtc";
+                clocks = <&clks 31>;
+                clock-names = "filt";
+            };
            
-           platform_dai: mxs-builtin-cpu-dai {
-               compatible = "fsl,mxs-builtin-cpu-dai";
-               reg = <0x80048000 0x2000>, <0x8004c000 0x2000>,
-                 <0x8005c000 0x2000>;
-               reg-names = "audioout", "audioin", "rtc";
-               interrupts = <8 6 4>;
-               dmas = <&dma_apbx 0>, <&dma_apbx 1>;
-               dma-names = "rx", "tx";
-           };
-           lradc@80050000 {
-               compatible = "fsl,imx23-lradc";
-               reg = <0x80050000 0x2000>;
-               interrupts = <36 37 38 39 40 41 42 43 44>;
-               status = "okay";
-           };
-       };
-   };
+            platform_dai: mxs-builtin-cpu-dai {
+                compatible = "fsl,mxs-builtin-cpu-dai";
+                reg = <0x80048000 0x2000>, <0x8004c000 0x2000>,
+                    <0x8005c000 0x2000>;
+                reg-names = "audioout", "audioin", "rtc";
+                interrupts = <8 6 4>;
+                dmas = <&dma_apbx 0>, <&dma_apbx 1>;
+                dma-names = "rx", "tx";
+            };
+            lradc@80050000 {
+                compatible = "fsl,imx23-lradc";
+                reg = <0x80050000 0x2000>;
+                interrupts = <36 37 38 39 40 41 42 43 44>;
+                status = "okay";
+            };
+        };
+        spi2 {
+            compatible = "spi-gpio";
+            pinctrl-names = "default";
+            pinctrl-0 = <&display_pins_spi>;
+            status="okay";
+            gpio-sck = <&gpio0 17 0>;
+            gpio-mosi = <&gpio0 16 0>;
+            cs-gpios = <&gpio1 13 0>;
+            num-chipselects = <1>;
+            #address-cells=<1>;
+            #size-cells=<0>;
 
-   ahb@80080000 {
-       usb0: usb@80080000 {
-           vbus-supply = <&reg_usb0_vbus>;
-           status = "okay";
-       };
-   };
+            display@0 {
+                compatible = "sharp,ls013b7dh03";
+                pinctrl-names = "sharp_display";
+                pinctrl-0 = <&display_pins_ctrl>;
+                reg = <0>;
+                spi-max-frequency = <1000000>;
+                gpios-disp-on = <&gpio1 14 0>;
+                spi-cs-high;
+            };
+        };
 
-   regulators {
-       compatible = "simple-bus";
+        //driving the excomin signal from pwm4 at 60Hz
+        disp_extcomin {
+            compatible = "pwm-backlight";
+            pwms = <&pwm 4 16666667>; //60Hz
+            brightness-levels = <0 127 255>; //can turn off, 50% duty, on
+            default-brightness-level = <1>; //50% duty cycle
+        };
+    };
+    ahb@80080000 {
+        usb0: usb@80080000 {
+            vbus-supply = <&reg_usb0_vbus>;
+            status = "okay";
+        };
+    };
 
-       reg_usb0_vbus: usb0_vbus {
-           compatible = "regulator-fixed";
-           regulator-name = "usb0_vbus";
-           regulator-min-microvolt = <5000000>;
-           regulator-max-microvolt = <5000000>;
-           enable-active-high;
-           startup-delay-us = <100>;
-           gpio = <&gpio1 15 0>;
-       };
-   };
+    regulators {
+        compatible = "simple-bus";
 
-   mxs-builtin-audio {
-       compatible = "fsl,mxs-builtin-audio";
-       audio-codec = <&codec>;
-       cpu-dai = <&platform_dai>;
-   };
-   gpio-keys {
-   	compatible = "gpio-keys";
+        reg_usb0_vbus: usb0_vbus {
+            compatible = "regulator-fixed";
+            regulator-name = "usb0_vbus";
+            regulator-min-microvolt = <5000000>;
+            regulator-max-microvolt = <5000000>;
+            enable-active-high;
+            startup-delay-us = <100>;
+            gpio = <&gpio1 15 0>;
+        };
+    };
+
+    mxs-builtin-audio {
+        compatible = "fsl,mxs-builtin-audio";
+        audio-codec = <&codec>;
+        cpu-dai = <&platform_dai>;
+    };
+    gpio-keys {
+        compatible = "gpio-keys";
 
         left-key {
             label = "Left key";
@@ -181,5 +237,5 @@
             gpios = <&gpio0 14 1>;
             linux,code = <139>; /* KEY_MENU */
         };
-   };
+    };
 };
