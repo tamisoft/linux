@@ -18,6 +18,7 @@
 #include <linux/err.h>
 #include <linux/gpio.h>
 #include <linux/init.h>
+#include <linux/pwm.h>
 #include <linux/irqchip/mxs.h>
 #include <linux/reboot.h>
 #include <linux/micrel_phy.h>
@@ -212,6 +213,17 @@ void dwams_dpin20_set(bool set)
 EXPORT_SYMBOL(dwams_dpin20_set);
 #endif
 
+#ifdef CONFIG_FB_LS013B7DH03
+static void imx23_dwams_display_init(void)
+{
+	printk( KERN_INFO "---imx23_dwams_display_init\nEMPTY FOR NOW\n" );
+}
+#else
+static void imx23_dwams_display_init(void)
+{
+
+}
+#endif
 
 void __init imx23_dwams_init(void)
 {
@@ -223,4 +235,5 @@ void __init imx23_dwams_init(void)
 #ifdef ENABLE_DEBUG_PINS
    imx23_dwams_debug_pins_init();
 #endif
+   imx23_dwams_display_init();
 }
