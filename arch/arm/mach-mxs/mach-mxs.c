@@ -59,6 +59,8 @@
 #define MXS_CLR_ADDR		0x8
 #define MXS_TOG_ADDR		0xc
 
+extern void __init imx23_dwams_init(void);
+
 static u32 chipid;
 static u32 socid;
 
@@ -467,6 +469,9 @@ static void __init mxs_machine_init(void)
 
 	if (of_machine_is_compatible("karo,tx28"))
 		tx28_post_init();
+
+        if (of_machine_is_compatible("Navicron,imx23-dwams"))
+		imx23_dwams_init();
 }
 
 #define MXS_CLKCTRL_RESET_CHIP		(1 << 1)
