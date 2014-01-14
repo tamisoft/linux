@@ -171,6 +171,11 @@
 		clocks = <&clks 37>;
 		status = "okay";
 	    };
+            power@80044000 {
+		compatible = "fsl,imx23-power";
+		reg = <0x80044000 0x2000>;
+		status = "enabled";
+            };
             lradc@80050000 {
                 compatible = "fsl,imx23-lradc";
                 reg = <0x80050000 0x2000>;

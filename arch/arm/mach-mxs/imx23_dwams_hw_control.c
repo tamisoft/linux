@@ -66,6 +66,8 @@
 #define DEBUG_TP17		MXS_GPIO_NR(0, 6)  //MXS_PIN_TO_GPIO(PINID_GPMI_D06)
 #define DEBUG_TP20		MXS_GPIO_NR(0, 7)  //MXS_PIN_TO_GPIO(PINID_GPMI_D07)
 
+void __iomem *pwrctrl_base;
+
 #if CONFIG_WL_TI
 void imx23_dwams_wlan_on_off(bool enable)
 {
@@ -213,6 +215,15 @@ void dwams_dpin20_set(bool set)
 EXPORT_SYMBOL(dwams_dpin20_set);
 #endif
 
+static void dwams_poweroff(void)
+{
+	/* Wlan off */
+	imx23_dwams_wlan_on_off(0);
+
+	/* imx23 off */
+	__raw_writel((0x3e77 << 16) | 1, pwrctrl_base + 0x100);
+}
+
 #ifdef CONFIG_FB_LS013B7DH03
 static void imx23_dwams_display_init(void)
 {
@@ -227,6 +238,7 @@ static void imx23_dwams_display_init(void)
 
 void __init imx23_dwams_init(void)
 {
+   struct device_node *np;
    printk( KERN_INFO "---imx23_dwams_init\n" );
    imx23_dwams_wlan_init();
    imx23_dwams_wlan_plat_data_set();
@@ -235,5 +247,11 @@ void __init imx23_dwams_init(void)
 #ifdef ENABLE_DEBUG_PINS
    imx23_dwams_debug_pins_init();
 #endif
+   np = of_find_compatible_node(NULL, NULL, "fsl,imx23-power");
+   pwrctrl_base = of_iomap(np, 0);
+   WARN_ON(!pwrctrl_base);
+
+   pm_power_off = dwams_poweroff;
+
    imx23_dwams_display_init();
 }
