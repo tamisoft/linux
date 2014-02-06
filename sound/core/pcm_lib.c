@@ -2189,6 +2189,31 @@ static int snd_pcm_lib_read_transfer(struct snd_pcm_substream *substream,
 			return err;
 	} else {
 		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff);
+#ifdef CONFIG_SND_SOC_ADMP441_DMIC		
+/* hack to shift bits to right position
+ * and set right == left */
+		if(substream->pcm->card->number == 0) {
+	
+			int i, sample;
+			int *my_hwbuf = (int*) hwbuf;
+		
+			for( i=0; i<(frames_to_bytes(runtime, frames)/4); i++ ) {
+
+				if(i & 0x1) {
+					//my_hwbuf[i] = sample;
+					//sample = (((my_hwbuf[i] << 8) & 0xffffff00)) * gain; 
+					
+					sample |= (((my_hwbuf[i] << 8) & 0xffffff00)); 
+					my_hwbuf[i] = sample;
+					my_hwbuf[i-1] = sample;
+				} else {
+					sample = (((my_hwbuf[i] << 8) & 0xffffff00)); 
+					//my_hwbuf[i] = sample;
+				}
+			}
+		}
+#endif
+
 		if (copy_to_user(buf, hwbuf, frames_to_bytes(runtime, frames)))
 			return -EFAULT;
 	}
