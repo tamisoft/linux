@@ -151,6 +151,11 @@ static int mxs_saif_set_clk(struct mxs_saif *saif,
 
 	master_saif->cur_rate = rate;
 
+#ifdef CONFIG_SND_SOC_ADMP441_DMIC
+	scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(3);
+#endif
+
+
 	if (!master_saif->mclk_in_use) {
 		__raw_writel(scr, master_saif->base + SAIF_CTRL);
 		return 0;
@@ -457,8 +462,15 @@ static int mxs_saif_hw_params(struct snd_pcm_substream *substream,
 		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
 		scr |= BF_SAIF_CTRL_WORD_LENGTH(8);
+#ifndef CONFIG_SND_SOC_ADMP441_DMIC
 		scr |= BM_SAIF_CTRL_BITCLK_48XFS_ENABLE;
+#endif
 		break;
+#ifdef CONFIG_SND_SOC_ADMP441_DMIC
+	case SNDRV_PCM_FORMAT_S32_LE:
+		scr |= BF_SAIF_CTRL_WORD_LENGTH(8);
+		break;
+#endif
 	default:
 		return -EINVAL;
 	}
@@ -471,6 +483,10 @@ static int mxs_saif_hw_params(struct snd_pcm_substream *substream,
 		/* enable RX mode */
 		scr |= BM_SAIF_CTRL_READ_MODE;
 	}
+#ifdef CONFIG_SND_SOC_ADMP441_DMIC
+	scr &= ~BM_SAIF_CTRL_CHANNEL_NUM_SELECT;
+	scr |= BF_SAIF_CTRL_CHANNEL_NUM_SELECT(0);
+#endif
 
 	__raw_writel(scr, saif->base + SAIF_CTRL);
 	return 0;
@@ -480,6 +496,10 @@ static int mxs_saif_prepare(struct snd_pcm_substream *substream,
 			   struct snd_soc_dai *cpu_dai)
 {
 	struct mxs_saif *saif = snd_soc_dai_get_drvdata(cpu_dai);
+
+#ifdef CONFIG_SND_SOC_ADMP441_DMIC
+	return 0;
+#endif
 
 	/* enable FIFO error irqs */
 	__raw_writel(BM_SAIF_CTRL_FIFO_ERROR_IRQ_EN,
@@ -503,7 +523,38 @@ static int mxs_saif_trigger(struct snd_pcm_substream *substream, int cmd,
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
+
+		if (saif->state == MXS_SAIF_STATE_RUNNING) {
+			return 0;
+		}
+
 		dev_dbg(cpu_dai->dev, "start\n");
+
+#ifdef CONFIG_SND_SOC_ADMP441_DMIC
+
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+			return -EINVAL;
+
+		__raw_writel( (BM_SAIF_CTRL_CLKGATE),
+			 saif->base + SAIF_CTRL + MXS_CLR_ADDR);
+
+		clk_enable(master_saif->clk);
+
+		/*clear fifo */
+		__raw_readl(saif->base + SAIF_DATA);
+		__raw_readl(saif->base + SAIF_DATA);
+
+		/* clear error IRQs */
+		__raw_writel(BM_SAIF_STAT_FIFO_UNDERFLOW_IRQ,
+			saif->base + SAIF_STAT + MXS_CLR_ADDR);
+		__raw_writel(BM_SAIF_STAT_FIFO_OVERFLOW_IRQ,
+			saif->base + SAIF_STAT + MXS_CLR_ADDR);
+
+		/* enable error IRQ and trigger DMA and run */
+		__raw_writel( (BM_SAIF_CTRL_RUN | BM_SAIF_CTRL_FIFO_ERROR_IRQ_EN),
+			saif->base + SAIF_CTRL + MXS_SET_ADDR);
+
+#else
 
 		clk_enable(master_saif->clk);
 		if (!master_saif->mclk_in_use)
@@ -542,20 +593,59 @@ static int mxs_saif_trigger(struct snd_pcm_substream *substream, int cmd,
 			__raw_readl(saif->base + SAIF_DATA);
 		}
 
+#endif
+
 		master_saif->ongoing = 1;
 
-		dev_dbg(saif->dev, "CTRL 0x%x STAT 0x%x\n",
-			__raw_readl(saif->base + SAIF_CTRL),
-			__raw_readl(saif->base + SAIF_STAT));
+		saif->state = MXS_SAIF_STATE_RUNNING;
+		
 
-		dev_dbg(master_saif->dev, "CTRL 0x%x STAT 0x%x\n",
-			__raw_readl(master_saif->base + SAIF_CTRL),
-			__raw_readl(master_saif->base + SAIF_STAT));
+//		dev_dbg(saif->dev, "CTRL 0x%x STAT 0x%x\n",
+//			__raw_readl(saif->base + SAIF_CTRL),
+//			__raw_readl(saif->base + SAIF_STAT));
+
+//		dev_dbg(master_saif->dev, "CTRL 0x%x STAT 0x%x\n",
+//			__raw_readl(master_saif->base + SAIF_CTRL),
+//			__raw_readl(master_saif->base + SAIF_STAT));
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+
+		if (saif->state == MXS_SAIF_STATE_STOPPED) {
+			return 0;
+		}
+
 		dev_dbg(cpu_dai->dev, "stop\n");
+
+#ifdef CONFIG_SND_SOC_ADMP441_DMIC
+
+		/* disable error irq */
+		__raw_writel( BM_SAIF_CTRL_FIFO_ERROR_IRQ_EN,
+				saif->base + SAIF_CTRL + MXS_CLR_ADDR);
+
+		/* wait a while for the current sample to complete */
+		delay = USEC_PER_SEC / master_saif->cur_rate;
+		/* must check...*/
+		delay = 65;
+		
+		__raw_writel(BM_SAIF_CTRL_RUN,
+			master_saif->base + SAIF_CTRL + MXS_CLR_ADDR);
+		udelay(delay);
+
+		/* clear error IRQs */
+		__raw_writel(BM_SAIF_STAT_FIFO_UNDERFLOW_IRQ,
+			saif->base + SAIF_STAT + MXS_CLR_ADDR);
+		__raw_writel(BM_SAIF_STAT_FIFO_OVERFLOW_IRQ,
+			saif->base + SAIF_STAT + MXS_CLR_ADDR);
+
+		/* disable clock */
+		__raw_writel( BM_SAIF_CTRL_CLKGATE,
+					saif->base + SAIF_CTRL + MXS_SET_ADDR);
+
+		clk_disable(master_saif->clk);
+
+#else
 
 		/* wait a while for the current sample to complete */
 		delay = USEC_PER_SEC / master_saif->cur_rate;
@@ -573,9 +663,10 @@ static int mxs_saif_trigger(struct snd_pcm_substream *substream, int cmd,
 			udelay(delay);
 			clk_disable(saif->clk);
 		}
-
+#endif
 		master_saif->ongoing = 0;
-
+		saif->state = MXS_SAIF_STATE_STOPPED;
+ 
 		break;
 	default:
 		return -EINVAL;
@@ -585,10 +676,13 @@ static int mxs_saif_trigger(struct snd_pcm_substream *substream, int cmd,
 }
 
 #define MXS_SAIF_RATES		SNDRV_PCM_RATE_8000_192000
+#ifdef CONFIG_SND_SOC_ADMP441_DMIC
+#define MXS_SAIF_FORMATS (SNDRV_PCM_FMTBIT_S32_LE | SNDRV_PCM_FMTBIT_S24_LE)
+#else
 #define MXS_SAIF_FORMATS \
 	(SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S20_3LE | \
 	SNDRV_PCM_FMTBIT_S24_LE)
-
+#endif
 static const struct snd_soc_dai_ops mxs_saif_dai_ops = {
 	.startup = mxs_saif_startup,
 	.trigger = mxs_saif_trigger,
@@ -640,20 +734,20 @@ static irqreturn_t mxs_saif_irq(int irq, void *dev_id)
 		return IRQ_NONE;
 
 	if (stat & BM_SAIF_STAT_FIFO_UNDERFLOW_IRQ) {
-		dev_dbg(saif->dev, "underrun!!! %d\n", ++saif->fifo_underrun);
+		//dev_dbg(saif->dev, "SAIF underrun!!! %d\n", ++saif->fifo_underrun);
 		__raw_writel(BM_SAIF_STAT_FIFO_UNDERFLOW_IRQ,
 				saif->base + SAIF_STAT + MXS_CLR_ADDR);
 	}
 
 	if (stat & BM_SAIF_STAT_FIFO_OVERFLOW_IRQ) {
-		dev_dbg(saif->dev, "overrun!!! %d\n", ++saif->fifo_overrun);
+		//dev_dbg(saif->dev, "SAIF overrun!!! %d\n", ++saif->fifo_overrun);
 		__raw_writel(BM_SAIF_STAT_FIFO_OVERFLOW_IRQ,
 				saif->base + SAIF_STAT + MXS_CLR_ADDR);
 	}
 
-	dev_dbg(saif->dev, "SAIF_CTRL %x SAIF_STAT %x\n",
-	       __raw_readl(saif->base + SAIF_CTRL),
-	       __raw_readl(saif->base + SAIF_STAT));
+//	dev_dbg(saif->dev, "SAIF_CTRL %x SAIF_STAT %x\n",
+//	       __raw_readl(saif->base + SAIF_CTRL),
+//	       __raw_readl(saif->base + SAIF_STAT));
 
 	return IRQ_HANDLED;
 }

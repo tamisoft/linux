@@ -6,8 +6,10 @@ obj-$(CONFIG_SND_MXS_SOC) += snd-soc-mxs.o snd-soc-mxs-pcm.o
 
 # i.MX Machine Support
 snd-soc-mxs-sgtl5000-objs := mxs-sgtl5000.o
+snd-soc-mxs-admp441-objs := mxs-admp441.o
 
 obj-$(CONFIG_SND_SOC_MXS_SGTL5000) += snd-soc-mxs-sgtl5000.o
+obj-$(CONFIG_SND_SOC_MXS_ADMP441) += snd-soc-mxs-admp441.o
 
 # i.MX23 built-in audio Machine and Platform support
 snd-soc-mxs-builtin-pcm-objs := mxs-builtin-pcm.o

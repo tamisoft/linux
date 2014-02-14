@@ -47,6 +47,20 @@ static void __iomem *digctrl;
 #define BP_SAIF_DIV_FRAC_EN	16
 #define BP_FRAC_IOFRAC		24
 
+#define BP_SAIF_CLKMUX		13
+
+int mxs_saif_clkmux_select_mx23(unsigned int clkmux)
+{
+	if (clkmux > 0x3)
+		return -EINVAL;
+
+	writel_relaxed(0x3 << BP_SAIF_CLKMUX, DIGCTRL + CLR);
+	writel_relaxed(clkmux << BP_SAIF_CLKMUX, DIGCTRL + SET);
+
+	return 0;
+}
+
+
 static void __init clk_misc_init(void)
 {
 	u32 val;

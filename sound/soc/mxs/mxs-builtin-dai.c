@@ -21,59 +21,68 @@
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 
+#include <linux/workqueue.h>
+
 #include "../codecs/mxs-builtin-codec.h"
 #include "mxs-builtin-pcm.h"
 
 #define ADC_VOLUME_MIN  0x37
 
+
+#ifndef BF
+#define BF(value, field) (((value) << BP_##field) & BM_##field)
+#endif
+
+/* TODO Delete this and use BM_RTC_PERSISTENT0_RELEASE_GND from header file
+ * if it works. */
+#define BP_RTC_PERSISTENT0_SPARE_ANALOG	18
+#define BM_RTC_PERSISTENT0_SPARE_ANALOG	0xFFFC0000
+#define BM_RTC_PERSISTENT0_RELEASE_GND BF(0x2, RTC_PERSISTENT0_SPARE_ANALOG)
+
+//#define ENABLE_HS_DETECT
+
 /* TODO Use codec IO function soc snd write etc, instead of __writel __readl */
 
-// TODO use container_of
-struct mxs_irq_data {
-	struct snd_pcm_substream *substream;
-	struct mxs_adc_priv *mxs_adc;
-};
-
 struct mxs_adc_priv {
-	struct mxs_irq_data irq_data;
+#ifdef ENABLE_HS_DETECT
+	struct delayed_work hs_det_work;
+	int hp_short_irq;
+#endif
+	struct delayed_work adc_ramp_work;
+	struct delayed_work dac_ramp_work;
+	struct workqueue_struct *adc_ramp_queue;
+	struct workqueue_struct *dac_ramp_queue;
 	int dma_adc_err_irq;
 	int dma_dac_err_irq;
-	int hp_short_irq;
 	void __iomem *audioin_base;
 	void __iomem *audioout_base;
 	void __iomem *rtc_base;
+	int play_state;
+	int cap_state;
 };
 
-typedef struct {
-	struct work_struct work;
-	struct timer_list timer;
+enum {
+		MXS_ADC_PLAY_STATE_RUNNIG,
+		MXS_ADC_CAP_STATE_RUN,
+		MXS_ADC_PLAY_STATE_STOPPED,
+		MXS_ADC_CAP_STATE_STOPPED
+};	
 
-	/* target workqueue and CPU ->timer uses to queue ->work */
-	struct workqueue_struct *wq;
-	int cpu;
-
-	struct mxs_adc_priv *mxs_adc;
-} my_delayed_work_t;
-
-// static struct delayed_work work;
-// static struct delayed_work adc_ramp_work;
-// static struct delayed_work dac_ramp_work;
-// static struct delayed_work test;
-static my_delayed_work_t work;
-static my_delayed_work_t adc_ramp_work;
-static my_delayed_work_t dac_ramp_work;
-static my_delayed_work_t test;
 static bool adc_ramp_done = 1;
 static bool dac_ramp_done = 1;
 
+#ifdef ENABLE_HS_DETECT
 static inline void mxs_adc_schedule_work(struct delayed_work *work)
 {
 	schedule_delayed_work(work, HZ / 10);
 }
 
-static void mxs_adc_work(struct work_struct *work)
+static void mxs_adc_hs_det_work(struct work_struct *work)
 {
-	struct mxs_adc_priv *mxs_adc = ((my_delayed_work_t *)work)->mxs_adc;
+	struct mxs_adc_priv *mxs_adc;
+
+	mxs_adc = container_of(work, struct mxs_adc_priv, hs_det_work.work);
+
 	/* disable irq */
 	disable_irq(mxs_adc->hp_short_irq);
 
@@ -110,22 +119,25 @@ static void mxs_adc_work(struct work_struct *work)
 	/* enable irq for next short detect*/
 	enable_irq(mxs_adc->hp_short_irq);
 }
+#endif
 
-static void mxs_adc_schedule_ramp_work(struct delayed_work *work)
+static inline void mxs_adc_queue_ramp_work(struct workqueue_struct *queue, struct delayed_work *work)
 {
-	schedule_delayed_work(work, msecs_to_jiffies(2));
+	queue_delayed_work(queue, work, msecs_to_jiffies(2));
 	adc_ramp_done = 0;
 }
 
 static void mxs_adc_ramp_work(struct work_struct *work)
 {
-	struct mxs_adc_priv *mxs_adc = ((my_delayed_work_t *)work)->mxs_adc;
+	struct mxs_adc_priv *mxs_adc;
 	u32 reg = 0;
 	u32 reg1 = 0;
 	u32 reg2 = 0;
 	u32 l, r;
 	u32 ll, rr;
 	int i;
+
+	mxs_adc = container_of(work, struct mxs_adc_priv, adc_ramp_work.work);
 
 	reg = __raw_readl(mxs_adc->audioin_base + \
 		HW_AUDIOIN_ADCVOLUME);
@@ -138,7 +150,7 @@ static void mxs_adc_ramp_work(struct work_struct *work)
 	    BF_AUDIOIN_ADCVOLUME_VOLUME_RIGHT(ADC_VOLUME_MIN);
 	__raw_writel(reg2,
 		mxs_adc->audioin_base + HW_AUDIOIN_ADCVOLUME);
-	msleep(1);
+	mdelay(1);
 
 	l = (reg & BM_AUDIOIN_ADCVOLUME_VOLUME_LEFT) >>
 		BP_AUDIOIN_ADCVOLUME_VOLUME_LEFT;
@@ -155,31 +167,31 @@ static void mxs_adc_ramp_work(struct work_struct *work)
 		    BF_AUDIOIN_ADCVOLUME_VOLUME_RIGHT(rr);
 		__raw_writel(reg2,
 		    mxs_adc->audioin_base + HW_AUDIOIN_ADCVOLUME);
-		msleep(1);
+		mdelay(1);
 	}
 	adc_ramp_done = 1;
 }
 
-static void mxs_dac_schedule_ramp_work(struct delayed_work *work)
+static inline void mxs_dac_queue_ramp_work(struct workqueue_struct *queue, struct delayed_work *work)
 {
-	schedule_delayed_work(work, msecs_to_jiffies(2));
+	queue_delayed_work(queue, work, msecs_to_jiffies(2));
 	dac_ramp_done = 0;
 }
 
 static void mxs_dac_ramp_work(struct work_struct *work)
 {
-	struct mxs_adc_priv *mxs_adc = ((my_delayed_work_t *)work)->mxs_adc;
+	struct mxs_adc_priv *mxs_adc;
 	u32 reg = 0;
 	u32 reg1 = 0;
 	u32 l, r;
 	u32 ll, rr;
 	int i;
 
+	mxs_adc = container_of(work, struct mxs_adc_priv, dac_ramp_work.work);
+
 	/* unmute hp and speaker */
 	__raw_writel(BM_AUDIOOUT_HPVOL_MUTE,
 		mxs_adc->audioout_base + HW_AUDIOOUT_HPVOL_CLR);
-	__raw_writel(BM_AUDIOOUT_SPEAKERCTRL_MUTE,
-		mxs_adc->audioout_base + HW_AUDIOOUT_SPEAKERCTRL_CLR);
 
 	reg = __raw_readl(mxs_adc->audioout_base + \
 			HW_AUDIOOUT_HPVOL);
@@ -192,6 +204,7 @@ static void mxs_dac_ramp_work(struct work_struct *work)
 	r = (reg & BM_AUDIOOUT_HPVOL_VOL_RIGHT) >>
 		BP_AUDIOOUT_HPVOL_VOL_RIGHT;
 	/* fade in hp vol */
+
 	for (i = 0x7f; i > 0 ;) {
 		i -= 0x8;
 		ll = i > (int)l ? i : l;
@@ -200,16 +213,17 @@ static void mxs_dac_ramp_work(struct work_struct *work)
 			| BF_AUDIOOUT_HPVOL_VOL_RIGHT(rr);
 		__raw_writel(reg,
 			mxs_adc->audioout_base + HW_AUDIOOUT_HPVOL);
-		msleep(1);
+		mdelay(1);
 	}
+
 	dac_ramp_done = 1;
 }
 
 /* IRQs */
+#ifdef ENABLE_HS_DETECT
 static irqreturn_t mxs_short_irq(int irq, void *dev_id)
 {
-	struct mxs_adc_priv *mxs_adc = dev_id;
-	//struct snd_pcm_substream *substream = mxs_adc->irq_data.substream;
+	struct mxs_adc_priv *mxs_adc = (struct mxs_adc_priv *)dev_id;
 	
 	__raw_writel(BM_AUDIOOUT_ANACTRL_SHORTMODE_LR,
 		mxs_adc->audioout_base + HW_AUDIOOUT_ANACTRL_CLR);
@@ -225,56 +239,58 @@ static irqreturn_t mxs_short_irq(int irq, void *dev_id)
 	__raw_writel(BM_AUDIOOUT_ANACTRL_HP_CLASSAB,
 		mxs_adc->audioout_base + HW_AUDIOOUT_ANACTRL_SET);
 
-	mxs_adc_schedule_work((struct delayed_work *) &work);
+	mxs_adc_schedule_work(&mxs_adc->hs_det_work);
+	return IRQ_HANDLED;
+}
+#endif
+
+static irqreturn_t mxs_dac_err_irq(int irq, void *dev_id)
+{
+	struct mxs_adc_priv *mxs_adc = (struct mxs_adc_priv *)dev_id;
+	u32 ctrl_reg;
+
+	ctrl_reg = __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_CTRL);
+
+	if (ctrl_reg & BM_AUDIOOUT_CTRL_FIFO_UNDERFLOW_IRQ) {
+		//printk(KERN_INFO "DAC underflow detected\n" );
+
+		__raw_writel(BM_AUDIOOUT_CTRL_FIFO_UNDERFLOW_IRQ,
+				mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
+
+	} else if (ctrl_reg & BM_AUDIOOUT_CTRL_FIFO_OVERFLOW_IRQ) {
+		//printk(KERN_INFO "DAC overflow detected\n" );
+
+		__raw_writel(BM_AUDIOOUT_CTRL_FIFO_OVERFLOW_IRQ,
+				mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
+	} else {
+		printk(KERN_WARNING "Unknown DAC error interrupt\n");
+	}
+
 	return IRQ_HANDLED;
 }
 
-static irqreturn_t mxs_err_irq(int irq, void *dev_id)
+static irqreturn_t mxs_adc_err_irq(int irq, void *dev_id)
 {
-	struct mxs_adc_priv *mxs_adc = dev_id;
-	struct snd_pcm_substream *substream = mxs_adc->irq_data.substream;
-	int playback = substream->stream == SNDRV_PCM_STREAM_PLAYBACK ? 1 : 0;
+	struct mxs_adc_priv *mxs_adc = (struct mxs_adc_priv *)dev_id;
 	u32 ctrl_reg;
-	u32 overflow_mask;
-	u32 underflow_mask;
 
-	if (playback) {
-		ctrl_reg = __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_CTRL);
-		underflow_mask = BM_AUDIOOUT_CTRL_FIFO_UNDERFLOW_IRQ;
-		overflow_mask = BM_AUDIOOUT_CTRL_FIFO_OVERFLOW_IRQ;
+	ctrl_reg = __raw_readl(mxs_adc->audioin_base + HW_AUDIOIN_CTRL);
+
+	if (ctrl_reg & BM_AUDIOIN_CTRL_FIFO_UNDERFLOW_IRQ) {
+		//printk(KERN_INFO "ADC underflow detected\n" );
+
+		__raw_writel(BM_AUDIOIN_CTRL_FIFO_UNDERFLOW_IRQ,
+				mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
+
+	} else if (ctrl_reg & BM_AUDIOIN_CTRL_FIFO_OVERFLOW_IRQ) {
+		//printk(KERN_INFO "ADC overflow detected\n" );
+
+		__raw_writel(BM_AUDIOIN_CTRL_FIFO_OVERFLOW_IRQ,
+				mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
 	} else {
-		ctrl_reg = __raw_readl(mxs_adc->audioin_base + HW_AUDIOIN_CTRL);
-		underflow_mask = BM_AUDIOIN_CTRL_FIFO_UNDERFLOW_IRQ;
-		overflow_mask = BM_AUDIOIN_CTRL_FIFO_OVERFLOW_IRQ;
+		printk(KERN_WARNING "Unknown ADC error interrupt\n");
 	}
-
-	if (ctrl_reg & underflow_mask) {
-		printk(KERN_DEBUG "%s underflow detected\n",
-		       playback ? "DAC" : "ADC");
-
-		if (playback)
-			__raw_writel(
-				BM_AUDIOOUT_CTRL_FIFO_UNDERFLOW_IRQ,
-				mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
-		else
-			__raw_writel(
-				BM_AUDIOIN_CTRL_FIFO_UNDERFLOW_IRQ,
-				mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
-
-	} else if (ctrl_reg & overflow_mask) {
-		printk(KERN_DEBUG "%s overflow detected\n",
-		       playback ? "DAC" : "ADC");
-
-		if (playback)
-			__raw_writel(
-				BM_AUDIOOUT_CTRL_FIFO_OVERFLOW_IRQ,
-				mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
-		else
-			__raw_writel(BM_AUDIOIN_CTRL_FIFO_OVERFLOW_IRQ,
-				mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
-	} else
-		printk(KERN_WARNING "Unknown DAC error interrupt\n");
-
+	
 	return IRQ_HANDLED;
 }
 /* END IRQs */
@@ -288,84 +304,171 @@ static int mxs_trigger(struct snd_pcm_substream *substream,
 	int ret = 0;
 
 	switch (cmd) {
-	case SNDRV_PCM_TRIGGER_START:
-	case SNDRV_PCM_TRIGGER_RESUME:
-	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 
-		if (playback) {
-			/* enable the fifo error interrupt */
-			__raw_writel(BM_AUDIOOUT_CTRL_FIFO_ERROR_IRQ_EN,
-			mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_SET);
-			/* write a data to data reg to trigger the transfer */
-			__raw_writel(0x0,
-				mxs_adc->audioout_base + HW_AUDIOOUT_DATA);
-			mxs_dac_schedule_ramp_work((struct delayed_work *) &dac_ramp_work);
-		} else {
-// 		    mxs_dma_get_info(prtd->dma_ch, &dma_info);
-// 		    cur_bar1 = dma_info.buf_addr;
-// 		    xfer_count1 = dma_info.xfer_count;
+		case SNDRV_PCM_TRIGGER_RESUME:
+		case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
+			if (playback) {
+				
+				__raw_writel(BM_AUDIOOUT_HPVOL_MUTE,
+						mxs_adc->audioout_base + HW_AUDIOOUT_HPVOL_CLR);
+				__raw_writel(0x0, mxs_adc->audioout_base + HW_AUDIOOUT_DATA);
+				__raw_writel(BM_AUDIOOUT_CTRL_FIFO_ERROR_IRQ_EN,
+						mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_SET);
 
-		    __raw_writel(BM_AUDIOIN_CTRL_RUN,
-			mxs_adc->audioin_base + HW_AUDIOIN_CTRL_SET);
-		    udelay(100);
+			} else {
 
-// 		    mxs_dma_get_info(prtd->dma_ch, &dma_info);
-// 		    cur_bar2 = dma_info.buf_addr;
-// 		    xfer_count2 = dma_info.xfer_count;
-// 
-// 		    /* check if DMA getting stuck */
-// 		    if ((xfer_count1 == xfer_count2) && (cur_bar1 == cur_bar2))
-// 			/* read a data from data reg to trigger the receive */
-// 			reg = __raw_readl(mxs_adc->audioin_base + HW_AUDIOIN_DATA);
-
-		    mxs_adc_schedule_ramp_work((struct delayed_work *) &adc_ramp_work);
-		}
+				__raw_writel(BM_AUDIOIN_CTRL_FIFO_ERROR_IRQ_EN,
+						mxs_adc->audioin_base + HW_AUDIOIN_CTRL_SET);
+				__raw_writel(BM_AUDIOIN_CTRL_RUN,
+						mxs_adc->audioin_base + HW_AUDIOIN_CTRL_SET);
+						
+			}
 		break;
 
-	case SNDRV_PCM_TRIGGER_SUSPEND:
-	case SNDRV_PCM_TRIGGER_STOP:
-	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+		case SNDRV_PCM_TRIGGER_START:
+		
+			if (playback) {
 
-		if (playback) {
-// 			printk(KERN_INFO "SNDRV_PCM_TRIGGER_START\n");
-// 			printk(KERN_INFO "ctrl:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_CTRL));
-// 			printk(KERN_INFO "stat:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_STAT));
-// 			printk(KERN_INFO "srr:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_DACSRR));
-// 			printk(KERN_INFO "vol:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_DACVOLUME));
-// 			printk(KERN_INFO "debug:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_DACDEBUG));
-// 			printk(KERN_INFO "hpvol:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_HPVOL));
-// 			printk(KERN_INFO "pwrdn:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_PWRDN));
-// 			printk(KERN_INFO "refc:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_REFCTRL));
-// 			printk(KERN_INFO "anac:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_ANACTRL));
-// 			printk(KERN_INFO "test:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_TEST));
-// 			printk(KERN_INFO "bist:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_BISTCTRL));
-// 			printk(KERN_INFO "anaclk:%x\n", __raw_readl(mxs_adc->audioout_base + HW_AUDIOOUT_ANACLKCTRL));
+				if (mxs_adc->play_state == MXS_ADC_PLAY_STATE_RUNNIG) {
+					return 0;
+				}
+
+				__raw_writel(0x0, mxs_adc->audioout_base + HW_AUDIOOUT_DATA);
+				__raw_writel(BM_AUDIOOUT_CTRL_FIFO_ERROR_IRQ_EN,
+						mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_SET);
+
+				mxs_dac_queue_ramp_work(mxs_adc->dac_ramp_queue, 
+						&mxs_adc->dac_ramp_work);
+
+				/* DAC hangs somethimes...these seems helping a little bit...
+				 * should be check if this has affects to other issues...*/
+				 __raw_writel(BM_AUDIOOUT_CTRL_RUN,
+						mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_SET);
+				__raw_writel(BM_AUDIOOUT_HPVOL_SELECT,
+						mxs_adc->audioout_base + HW_AUDIOOUT_HPVOL_CLR);
+
+				mxs_adc->play_state = MXS_ADC_PLAY_STATE_RUNNIG;
+						
+			} else {
+
+				if (mxs_adc->cap_state == MXS_ADC_CAP_STATE_RUN) {
+					return 0;
+				}
+
+				__raw_writel(BM_AUDIOIN_CTRL_FIFO_ERROR_IRQ_EN,
+						mxs_adc->audioin_base + HW_AUDIOIN_CTRL_SET);
+				__raw_writel(BM_AUDIOIN_CTRL_RUN,
+						mxs_adc->audioin_base + HW_AUDIOIN_CTRL_SET);
+				udelay(100);
+				mxs_adc_queue_ramp_work(mxs_adc->adc_ramp_queue, 
+						&mxs_adc->adc_ramp_work);
+
+				if (mxs_adc->play_state == MXS_ADC_PLAY_STATE_STOPPED) {
+					__raw_writel(BM_AUDIOOUT_HPVOL_SELECT,
+							mxs_adc->audioout_base + HW_AUDIOOUT_HPVOL_SET);
+				}
+				
+				mxs_adc->cap_state = MXS_ADC_CAP_STATE_RUN;
+			}
 			
-			if (dac_ramp_done == 0) {
-				cancel_delayed_work((struct delayed_work *) &dac_ramp_work);
-				dac_ramp_done = 1;
-			}
-			__raw_writel(BM_AUDIOOUT_HPVOL_MUTE,
-			  mxs_adc->audioout_base + HW_AUDIOOUT_HPVOL_SET);
-			__raw_writel(BM_AUDIOOUT_SPEAKERCTRL_MUTE,
-			  mxs_adc->audioout_base + HW_AUDIOOUT_SPEAKERCTRL_SET);
-			/* disable the fifo error interrupt */
-			__raw_writel(BM_AUDIOOUT_CTRL_FIFO_ERROR_IRQ_EN,
-				mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
-			mdelay(50);
-		} else {
-			if (adc_ramp_done == 0) {
-				cancel_delayed_work((struct delayed_work *) &adc_ramp_work);
-				adc_ramp_done = 1;
-			}
-			__raw_writel(BM_AUDIOIN_CTRL_RUN,
-				mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
-		}
+			/* Make sure headphone is UP...DAPM put it down, somethimes ? */
+			__raw_writel(BM_AUDIOOUT_ANACTRL_HP_HOLD_GND,
+					mxs_adc->audioout_base + HW_AUDIOOUT_ANACTRL_SET);
+			__raw_writel(BM_RTC_PERSISTENT0_RELEASE_GND,
+					mxs_adc->rtc_base + HW_RTC_PERSISTENT0_SET);
+			mdelay(1);
+			__raw_writel(BM_AUDIOOUT_PWRDN_HEADPHONE,
+					mxs_adc->audioout_base + HW_AUDIOOUT_PWRDN_CLR);
+			mdelay(1);
+			__raw_writel(BM_AUDIOOUT_ANACTRL_HP_HOLD_GND,
+					mxs_adc->audioout_base + HW_AUDIOOUT_ANACTRL_CLR);
+
 		break;
 
-	default:
-		printk(KERN_ERR "TRIGGER ERROR\n");
-		ret = -EINVAL;
+		case SNDRV_PCM_TRIGGER_SUSPEND:
+		case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+
+			if (playback) {
+				__raw_writel(BM_AUDIOOUT_HPVOL_MUTE,
+						mxs_adc->audioout_base + HW_AUDIOOUT_HPVOL_SET);
+				__raw_writel(BM_AUDIOOUT_CTRL_FIFO_ERROR_IRQ_EN,
+						mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
+			} else {
+				__raw_writel(BM_AUDIOIN_CTRL_FIFO_ERROR_IRQ_EN,
+						mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
+				__raw_writel(BM_AUDIOIN_CTRL_RUN,
+						mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
+			}
+
+		break;
+
+		case SNDRV_PCM_TRIGGER_STOP:
+
+			if (playback) {
+
+				if (mxs_adc->cap_state == MXS_ADC_PLAY_STATE_STOPPED) {
+					return 0;
+				}
+
+				/* DAC hangs somethimes...this seems helping a little bit... */
+				__raw_writel(BM_AUDIOOUT_CTRL_RUN,
+						mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
+				__raw_writel(BM_AUDIOOUT_CTRL_FIFO_ERROR_IRQ_EN,
+						mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
+				__raw_writel(BM_AUDIOOUT_HPVOL_MUTE,
+						mxs_adc->audioout_base + HW_AUDIOOUT_HPVOL_SET);
+
+				if (dac_ramp_done == 0) {
+					cancel_delayed_work(&mxs_adc->dac_ramp_work);
+					dac_ramp_done = 1;
+				}
+
+				/* DAPM not work ??? */
+				if (mxs_adc->cap_state == MXS_ADC_CAP_STATE_STOPPED) {
+					__raw_writel(BM_AUDIOOUT_PWRDN_HEADPHONE,
+							mxs_adc->audioout_base + HW_AUDIOOUT_PWRDN_SET);
+					//__raw_writel(BM_RTC_PERSISTENT0_RELEASE_GND,
+					//		mxs_adc->rtc_base + HW_RTC_PERSISTENT0_CLR);
+				}
+				
+				mxs_adc->play_state = MXS_ADC_PLAY_STATE_STOPPED;
+				
+				/* why this delay */
+				mdelay(50);
+
+			} else {
+
+				if (mxs_adc->cap_state == MXS_ADC_CAP_STATE_STOPPED) {
+					return 0;
+				}
+				
+				__raw_writel(BM_AUDIOIN_CTRL_FIFO_ERROR_IRQ_EN,
+						mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
+
+				if (adc_ramp_done == 0) {
+					cancel_delayed_work(&mxs_adc->adc_ramp_work);
+					adc_ramp_done = 1;
+				}
+
+				__raw_writel(BM_AUDIOIN_CTRL_RUN,	
+						mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
+
+				/* DAPM not work ??? */
+				if (mxs_adc->play_state == MXS_ADC_PLAY_STATE_STOPPED) {
+					__raw_writel(BM_AUDIOOUT_PWRDN_HEADPHONE,
+							mxs_adc->audioout_base + HW_AUDIOOUT_PWRDN_SET);
+					//__raw_writel(BM_RTC_PERSISTENT0_RELEASE_GND,
+					//		mxs_adc->rtc_base + HW_RTC_PERSISTENT0_CLR);
+				}
+
+				mxs_adc->cap_state = MXS_ADC_CAP_STATE_STOPPED;
+			}
+			break;
+		
+		default:
+			printk(KERN_ERR "DAC/ADC TRIGGER ERROR\n");
+			ret = -EINVAL;
+		break;
 	}
 
 	return ret;
@@ -376,30 +479,18 @@ static int mxs_startup(struct snd_pcm_substream *substream,
 {
 	struct mxs_adc_priv *mxs_adc = snd_soc_dai_get_drvdata(cpu_dai);
 	int playback = substream->stream == SNDRV_PCM_STREAM_PLAYBACK ? 1 : 0;
-	mxs_adc->irq_data.mxs_adc = mxs_adc;
-	mxs_adc->irq_data.substream = substream;
 
-	work.mxs_adc = mxs_adc;
-	adc_ramp_work.mxs_adc = mxs_adc;
-	dac_ramp_work.mxs_adc = mxs_adc;
-	test.mxs_adc = mxs_adc;
-	INIT_DELAYED_WORK(&work, mxs_adc_work);
-	INIT_DELAYED_WORK(&adc_ramp_work, mxs_adc_ramp_work);
-	INIT_DELAYED_WORK(&dac_ramp_work, mxs_dac_ramp_work);
-
-	/* Enable error interrupt */
+	/* clear error interrupts */
 	if (playback) {
 		__raw_writel(BM_AUDIOOUT_CTRL_FIFO_OVERFLOW_IRQ,
-			mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
+				mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
 		__raw_writel(BM_AUDIOOUT_CTRL_FIFO_UNDERFLOW_IRQ,
-			mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
+				mxs_adc->audioout_base + HW_AUDIOOUT_CTRL_CLR);
 	} else {
 		__raw_writel(BM_AUDIOIN_CTRL_FIFO_OVERFLOW_IRQ,
-			mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
+				mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
 		__raw_writel(BM_AUDIOIN_CTRL_FIFO_UNDERFLOW_IRQ,
-			mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
-		__raw_writel(BM_AUDIOIN_CTRL_FIFO_ERROR_IRQ_EN,
-			mxs_adc->audioin_base + HW_AUDIOIN_CTRL_SET);
+				mxs_adc->audioin_base + HW_AUDIOIN_CTRL_CLR);
 	}
 
 	return 0;
@@ -471,7 +562,7 @@ static int mxs_adc_probe(struct platform_device *pdev)
 	if (!np)
 		return -EINVAL;
 
-	mxs_adc = devm_kzalloc(&pdev->dev, sizeof(*mxs_adc), GFP_KERNEL);
+	mxs_adc = devm_kzalloc(&pdev->dev, sizeof(struct mxs_adc_priv), GFP_KERNEL);
 	if (!mxs_adc)
 		return -ENOMEM;
 	
@@ -502,30 +593,32 @@ static int mxs_adc_probe(struct platform_device *pdev)
 		return ret;
 	}
 	
+	/* Request IRQs */
+#ifdef ENABLE_HS_DETECT
 	mxs_adc->hp_short_irq = platform_get_irq(pdev, 2);
 	if (mxs_adc->hp_short_irq < 0) {
 		ret = mxs_adc->hp_short_irq;
 		dev_err(&pdev->dev, "failed to get HP_SHORT irq resource: %d\n", ret);
 		return ret;
 	}
-	
-	/* Request IRQs */
-	ret = devm_request_irq(&pdev->dev, mxs_adc->dma_adc_err_irq, mxs_err_irq, 0, "MXS DAC and ADC Error",
+#endif	
+
+	ret = devm_request_irq(&pdev->dev, mxs_adc->dma_adc_err_irq, mxs_adc_err_irq, 0, "MXS ADC Error",
 			  mxs_adc);
 	if (ret) {
-		printk(KERN_ERR "%s: Unable to request ADC/DAC error irq %d\n",
+		printk(KERN_ERR "%s: Unable to request ADC error irq %d\n",
 		       __func__, mxs_adc->dma_adc_err_irq);
 		return ret;
 	}
 
-	ret = devm_request_irq(&pdev->dev, mxs_adc->dma_dac_err_irq, mxs_err_irq, 0, "MXS DAC and ADC Error",
+	ret = devm_request_irq(&pdev->dev, mxs_adc->dma_dac_err_irq, mxs_dac_err_irq, 0, "MXS DAC Error",
 			  mxs_adc);
 	if (ret) {
-		printk(KERN_ERR "%s: Unable to request ADC/DAC error irq %d\n",
+		printk(KERN_ERR "%s: Unable to request DAC error irq %d\n",
 		       __func__, mxs_adc->dma_dac_err_irq);
 		return ret;
 	}
-
+#ifdef ENABLE_HS_DETECT
 	ret = devm_request_irq(&pdev->dev, mxs_adc->hp_short_irq, mxs_short_irq,
 		IRQF_DISABLED | IRQF_SHARED, "MXS DAC and ADC HP SHORT", mxs_adc);
 	if (ret) {
@@ -533,6 +626,29 @@ static int mxs_adc_probe(struct platform_device *pdev)
 		       __func__, mxs_adc->hp_short_irq);
 		return ret;
 	}
+
+	INIT_DELAYED_WORK(&mxs_adc->hs_det_work, mxs_adc_hs_det_work);
+#endif
+
+	INIT_DELAYED_WORK(&mxs_adc->adc_ramp_work, mxs_adc_ramp_work);
+	INIT_DELAYED_WORK(&mxs_adc->dac_ramp_work, mxs_dac_ramp_work);
+	mxs_adc->adc_ramp_queue = create_singlethread_workqueue("buildin-adc-queue");
+	mxs_adc->dac_ramp_queue = create_singlethread_workqueue("buildin-dac-queue");
+
+	if (!mxs_adc->adc_ramp_queue) {
+		dev_err(&pdev->dev, "create adc_ramp_queue fail...\n");
+		goto failed_pdev_thread1;
+		ret = -EBUSY;
+	}
+
+	if (!mxs_adc->dac_ramp_queue) {
+		dev_err(&pdev->dev, "create dac_ramp_queue fail...\n");
+		goto failed_pdev_thread2;
+		ret = -EBUSY;
+	}
+
+	mxs_adc->play_state = MXS_ADC_PLAY_STATE_STOPPED;
+	mxs_adc->cap_state = MXS_ADC_CAP_STATE_STOPPED;
 
 	platform_set_drvdata(pdev, mxs_adc);
 
@@ -550,6 +666,9 @@ static int mxs_adc_probe(struct platform_device *pdev)
 
 	return 0;
 
+failed_pdev_thread2:
+	destroy_workqueue(mxs_adc->adc_ramp_queue);
+failed_pdev_thread1:
 failed_pdev_alloc:
 	snd_soc_unregister_component(&pdev->dev);
 
@@ -558,6 +677,13 @@ failed_pdev_alloc:
 
 static int mxs_adc_remove(struct platform_device *pdev)
 {
+	struct mxs_adc_priv *mxs_adc = platform_get_drvdata(pdev);
+	
+	flush_workqueue(mxs_adc->adc_ramp_queue);
+	destroy_workqueue(mxs_adc->adc_ramp_queue);
+	flush_workqueue(mxs_adc->dac_ramp_queue);
+	destroy_workqueue(mxs_adc->dac_ramp_queue);
+
 	mxs_adc_pcm_platform_unregister(&pdev->dev);
 	snd_soc_unregister_component(&pdev->dev);
 

@@ -538,6 +538,9 @@ config SND_SOC_WM9713
 config SND_SOC_MXS_BUILTIN_CODEC
 	tristate
 
+config SND_SOC_ADMP441_DMIC
+	tristate
+
 # Amp
 config SND_SOC_LM4857
 	tristate

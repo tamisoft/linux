@@ -38,6 +38,7 @@
                         0x00c3 /* MX23_PAD_GPMI_D12__GPIO_0_12 */
                         0x00d3 /* MX23_PAD_GPMI_D13__GPIO_0_13 */
                         0x00e3 /* MX23_PAD_GPMI_D14__GPIO_0_14 */
+                        0x1123 /* MX23_PAD_LCD_RESET__GPIO_1_18 */
                     >;
                     fsl,drive-strength = <0>;
                     fsl,voltage = <1>;
@@ -66,6 +67,17 @@
                 >;
                 fsl,pull-up = <0>;
             };
+            saif0_pins_dwams: saif0@0 {
+		reg = <1>;
+		fsl,pinmux-ids = <
+		    0x1092 /* MX23_PAD_LCD_D09__SAIF1_SDATA0 */
+                    0x10a2 /* MX23_PAD_LCD_D10__SAIF_MCLK_BITCLK */
+		    0x10b2 /* MX23_PAD_LCD_D11__SAIF_LRCLK */
+		>;
+		fsl,drive-strength = <2>;
+		fsl,voltage = <1>;
+		fsl,pull-up = <0>;
+	    };
             display_pins_spi: display-spi@0 {
                 reg = <0>;
                 fsl,pinmux-ids = <
@@ -150,6 +162,15 @@
                 dmas = <&dma_apbx 0>, <&dma_apbx 1>;
                 dma-names = "rx", "tx";
             };
+            saif0: saif@80042000 {
+		compatible = "fsl,imx28-saif";
+		pinctrl-names = "default";
+		pinctrl-0 = <&saif0_pins_dwams>;
+		interrupts = <10>;
+		#clock-cells = <0>;
+		clocks = <&clks 37>;
+		status = "okay";
+	    };
             lradc@80050000 {
                 compatible = "fsl,imx23-lradc";
                 reg = <0x80050000 0x2000>;
@@ -237,5 +258,19 @@
             gpios = <&gpio0 14 1>;
             linux,code = <139>; /* KEY_MENU */
         };
+        hp-detect-key {
+            label = "hp detect key";
+            gpios = <&gpio1 18 1>;
+            linux,code = <248>; /* KEY_MICMUTE */
+        };
+    };
+    admp441: codec {
+	compatible = "admp441-dmic-codec";
+    };
+
+    admp441-card {
+	compatible = "navicron,mxs-admp441";
+	saif-controller = <&saif0>;
+	dmic-codec = <&admp441>;
     };
 };

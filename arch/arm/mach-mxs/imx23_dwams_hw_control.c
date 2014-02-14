@@ -175,9 +175,9 @@ static void imx23_dwams_audio_init(void)
 {
    printk( KERN_INFO "---imx23_dwams_audio_init\n" );
 
-   gpio_request(HS_DETECT, "hs_detect");
-   gpio_direction_input(HS_DETECT);
-   gpio_export(HS_DETECT, true);
+//   gpio_request(HS_DETECT, "hs_detect");
+//   gpio_direction_input(HS_DETECT);
+//   gpio_export(HS_DETECT, true);
 
    gpio_request(MIC_GPIO_EN, "saif_mic_en");
    gpio_direction_output(MIC_GPIO_EN, 1);

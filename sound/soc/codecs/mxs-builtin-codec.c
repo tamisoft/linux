@@ -250,10 +250,10 @@ static void mxs_codec_dac_arm_short_lr(struct mxs_adc_priv *mxs_adc, bool bShort
 
 static void mxs_codec_dac_set_short_trip_level(struct mxs_adc_priv *mxs_adc, u8 u8level)
 {
-	__raw_writel(__raw_readl(mxs_adc->aout_base +
+	__raw_writel(((__raw_readl(mxs_adc->aout_base +
 		HW_AUDIOOUT_ANACTRL)
-		& (~BM_AUDIOOUT_ANACTRL_SHORT_LVLADJL)
-		& (~BM_AUDIOOUT_ANACTRL_SHORT_LVLADJR)
+		& (~BM_AUDIOOUT_ANACTRL_SHORT_LVLADJL))
+		& (~BM_AUDIOOUT_ANACTRL_SHORT_LVLADJR))
 		| BF(u8level, AUDIOOUT_ANACTRL_SHORT_LVLADJL)
 		| BF(u8level, AUDIOOUT_ANACTRL_SHORT_LVLADJR),
 		mxs_adc->aout_base + HW_AUDIOOUT_ANACTRL);
@@ -311,6 +311,11 @@ mxs_codec_dac_power_on(struct mxs_adc_priv *mxs_adc)
 	/* Mute speaker amp */
 	__raw_writel(BM_AUDIOOUT_SPEAKERCTRL_MUTE,
 		      mxs_adc->aout_base + HW_AUDIOOUT_SPEAKERCTRL_SET);
+
+	/* See errata: 2349 */
+	__raw_writel(BF_AUDIOOUT_CTRL_DMAWAIT_COUNT(31),
+			mxs_adc->aout_base + HW_AUDIOOUT_CTRL_SET);
+
 	/* Enable the audioout */
 	 __raw_writel(BM_AUDIOOUT_CTRL_RUN,
 			mxs_adc->aout_base + HW_AUDIOOUT_CTRL_SET);

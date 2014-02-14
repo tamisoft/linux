@@ -38,6 +38,9 @@ static const struct snd_pcm_hardware snd_mxs_hardware = {
 				  SNDRV_PCM_INFO_HALF_DUPLEX,
 	.formats		= SNDRV_PCM_FMTBIT_S16_LE |
 				  SNDRV_PCM_FMTBIT_S20_3LE |
+#ifdef CONFIG_SND_SOC_ADMP441_DMIC
+				  SNDRV_PCM_FMTBIT_S32_LE |
+#endif
 				  SNDRV_PCM_FMTBIT_S24_LE,
 	.channels_min		= 2,
 	.channels_max		= 2,
