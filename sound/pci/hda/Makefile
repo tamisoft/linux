@@ -12,6 +12,7 @@ CFLAGS_hda_intel.o := -I$(src)
 
 snd-hda-codec-realtek-objs :=	patch_realtek.o
 snd-hda-codec-cmedia-objs :=	patch_cmedia.o
+snd-hda-codec-cm8888-objs :=	patch_cm8888.o
 snd-hda-codec-analog-objs :=	patch_analog.o
 snd-hda-codec-idt-objs :=	patch_sigmatel.o
 snd-hda-codec-si3054-objs :=	patch_si3054.o
@@ -31,6 +32,9 @@ obj-$(CONFIG_SND_HDA_INTEL) += snd-hda-codec-realtek.o
 endif
 ifdef CONFIG_SND_HDA_CODEC_CMEDIA
 obj-$(CONFIG_SND_HDA_INTEL) += snd-hda-codec-cmedia.o
+endif
+ifdef CONFIG_SND_HDA_CODEC_CM8888
+obj-$(CONFIG_SND_HDA_INTEL) += snd-hda-codec-cm8888.o
 endif
 ifdef CONFIG_SND_HDA_CODEC_ANALOG
 obj-$(CONFIG_SND_HDA_INTEL) += snd-hda-codec-analog.o

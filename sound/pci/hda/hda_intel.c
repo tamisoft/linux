@@ -594,6 +594,7 @@ enum {
 #define AZX_DCAPS_4K_BDLE_BOUNDARY (1 << 23)	/* BDLE in 4k boundary */
 #define AZX_DCAPS_COUNT_LPIB_DELAY  (1 << 25)	/* Take LPIB as delay */
 #define AZX_DCAPS_PM_RUNTIME	(1 << 26)	/* runtime PM support */
+#define AZX_DCAPS_CM8888_NAVICRON	(1 << 27)	/* Navicron specific for CM8888 */
 
 /* quirks for Intel PCH */
 #define AZX_DCAPS_INTEL_PCH_NOPM \
@@ -619,6 +620,10 @@ enum {
 
 #define AZX_DCAPS_PRESET_CTHDA \
 	(AZX_DCAPS_NO_MSI | AZX_DCAPS_POSFIX_LPIB | AZX_DCAPS_4K_BDLE_BOUNDARY)
+
+/* quirks for CM8888 */
+#define AZX_DCAPS_PRESET_CM8888 \
+	(AZX_DCAPS_NO_64BIT | AZX_DCAPS_CM8888_NAVICRON)
 
 /*
  * VGA-switcher support
@@ -771,6 +776,12 @@ static void azx_init_cmd_io(struct azx *chip)
 	azx_writew(chip, CORBWP, 0);
 	/* reset the corb hw read pointer */
 	azx_writew(chip, CORBRP, ICH6_CORBRP_RST);
+
+	printk(KERN_INFO "Waiting CORBRP reset...\n");
+	while( (azx_readw(chip, CORBRP) & ICH6_CORBRP_RST) == 0 );
+	azx_writew(chip, CORBRP, 0x0);
+	while( (azx_readw(chip, CORBRP) & ICH6_CORBRP_RST) == 1 );
+
 	/* enable corb dma */
 	azx_writeb(chip, CORBCTL, ICH6_CORBCTL_RUN);
 
@@ -857,7 +868,7 @@ static int azx_corb_send_cmd(struct hda_bus *bus, u32 val)
 
 	chip->rirb.cmds[addr]++;
 	chip->corb.buf[wp] = cpu_to_le32(val);
-	azx_writel(chip, CORBWP, wp);
+	azx_writew(chip, CORBWP, wp);
 
 	spin_unlock_irq(&chip->reg_lock);
 
@@ -891,6 +902,7 @@ static void azx_update_rirb(struct azx *chip)
 		res_ex = le32_to_cpu(chip->rirb.buf[rp + 1]);
 		res = le32_to_cpu(chip->rirb.buf[rp]);
 		addr = azx_response_addr(res_ex);
+
 		if (res_ex & ICH6_RIRB_EX_UNSOL_EV)
 			snd_hda_queue_unsol_event(chip->bus, res, res_ex);
 		else if (chip->rirb.cmds[addr]) {
@@ -964,8 +976,10 @@ static unsigned int azx_rirb_get_response(struct hda_bus *bus,
 		snd_printk(KERN_WARNING SFX "%s: No response from codec, "
 			   "disabling MSI: last cmd=0x%08x\n",
 			   pci_name(chip->pci), chip->last_cmd[addr]);
-		free_irq(chip->irq, chip);
-		chip->irq = -1;
+		if (chip->irq >= 0) {
+			free_irq(chip->irq, chip);
+			chip->irq = -1;
+		}
 		pci_disable_msi(chip->pci);
 		chip->msi = 0;
 		if (azx_acquire_irq(chip, 1) < 0) {
@@ -1126,13 +1140,17 @@ static int azx_reset(struct azx *chip, int full_reset)
 		goto __skip;
 
 	/* clear STATESTS */
-	azx_writeb(chip, STATESTS, STATESTS_INT_MASK);
+	azx_writew(chip, STATESTS, STATESTS_INT_MASK);
+
+	/* Make sure...see spec */
+	azx_writeb(chip, RIRBCTL, 0);
+	azx_writeb(chip, CORBCTL, 0);
 
 	/* reset controller */
 	azx_writel(chip, GCTL, azx_readl(chip, GCTL) & ~ICH6_GCTL_RESET);
 
 	timeout = jiffies + msecs_to_jiffies(100);
-	while (azx_readb(chip, GCTL) &&
+	while (azx_readl(chip, GCTL) &&
 			time_before(jiffies, timeout))
 		usleep_range(500, 1000);
 
@@ -1142,10 +1160,10 @@ static int azx_reset(struct azx *chip, int full_reset)
 	usleep_range(500, 1000);
 
 	/* Bring controller out of reset */
-	azx_writeb(chip, GCTL, azx_readb(chip, GCTL) | ICH6_GCTL_RESET);
+	azx_writel(chip, GCTL, azx_readl(chip, GCTL) | ICH6_GCTL_RESET );
 
 	timeout = jiffies + msecs_to_jiffies(100);
-	while (!azx_readb(chip, GCTL) &&
+	while (!azx_readl(chip, GCTL) &&
 			time_before(jiffies, timeout))
 		usleep_range(500, 1000);
 
@@ -1154,15 +1172,14 @@ static int azx_reset(struct azx *chip, int full_reset)
 
       __skip:
 	/* check to see if controller is ready */
-	if (!azx_readb(chip, GCTL)) {
+	if (!azx_readl(chip, GCTL)) {
 		snd_printd(SFX "%s: azx_reset: controller not ready!\n", pci_name(chip->pci));
 		return -EBUSY;
 	}
 
 	/* Accept unsolicited responses */
 	if (!chip->single_cmd)
-		azx_writel(chip, GCTL, azx_readl(chip, GCTL) |
-			   ICH6_GCTL_UNSOL);
+		azx_writel(chip, GCTL, azx_readl(chip, GCTL) | ICH6_GCTL_UNSOL);
 
 	/* detect codecs */
 	if (!chip->codec_mask) {
@@ -1194,12 +1211,12 @@ static void azx_int_disable(struct azx *chip)
 	/* disable interrupts in stream descriptor */
 	for (i = 0; i < chip->num_streams; i++) {
 		struct azx_dev *azx_dev = &chip->azx_dev[i];
-		azx_sd_writeb(azx_dev, SD_CTL,
-			      azx_sd_readb(azx_dev, SD_CTL) & ~SD_INT_MASK);
+		azx_sd_writel(azx_dev, SD_CTL,
+			      azx_sd_readl(azx_dev, SD_CTL) & ~SD_INT_MASK);
 	}
 
 	/* disable SIE for all streams */
-	azx_writeb(chip, INTCTL, 0);
+	azx_writel(chip, INTCTL, azx_readl(chip, INTCTL) &  ~(0x2f));
 
 	/* disable controller CIE and GIE */
 	azx_writel(chip, INTCTL, azx_readl(chip, INTCTL) &
@@ -1218,7 +1235,7 @@ static void azx_int_clear(struct azx *chip)
 	}
 
 	/* clear STATESTS */
-	azx_writeb(chip, STATESTS, STATESTS_INT_MASK);
+	azx_writew(chip, STATESTS, STATESTS_INT_MASK);
 
 	/* clear rirb status */
 	azx_writeb(chip, RIRBSTS, RIRB_INT_MASK);
@@ -1239,14 +1256,16 @@ static void azx_stream_start(struct azx *chip, struct azx_dev *azx_dev)
 	azx_writel(chip, INTCTL,
 		   azx_readl(chip, INTCTL) | (1 << azx_dev->index));
 	/* set DMA start and interrupt mask */
-	azx_sd_writeb(azx_dev, SD_CTL, azx_sd_readb(azx_dev, SD_CTL) |
-		      SD_CTL_DMA_START | SD_INT_MASK);
+	azx_sd_writel(azx_dev, SD_CTL, azx_sd_readl(azx_dev, SD_CTL) |
+		      SD_CTL_DMA_START | SD_INT_MASK );
+
+
 }
 
 /* stop DMA */
 static void azx_stream_clear(struct azx *chip, struct azx_dev *azx_dev)
 {
-	azx_sd_writeb(azx_dev, SD_CTL, azx_sd_readb(azx_dev, SD_CTL) &
+	azx_sd_writel(azx_dev, SD_CTL, azx_sd_readl(azx_dev, SD_CTL) &
 		      ~(SD_CTL_DMA_START | SD_INT_MASK));
 	azx_sd_writeb(azx_dev, SD_STS, SD_INT_MASK); /* to be sure */
 }
@@ -1372,6 +1391,12 @@ static irqreturn_t azx_interrupt(int irq, void *dev_id)
 	u8 sd_status;
 	int i, ok;
 
+	if (!chip->initialized)
+		return IRQ_NONE;
+
+	if (dev_id == NULL)
+		return IRQ_NONE;
+
 #ifdef CONFIG_PM_RUNTIME
 	if (chip->pci->dev.power.runtime_status != RPM_ACTIVE)
 		return IRQ_NONE;
@@ -1395,6 +1420,7 @@ static irqreturn_t azx_interrupt(int irq, void *dev_id)
 		if (status & azx_dev->sd_int_sta_mask) {
 			sd_status = azx_sd_readb(azx_dev, SD_STS);
 			azx_sd_writeb(azx_dev, SD_STS, SD_INT_MASK);
+
 			if (!azx_dev->substream || !azx_dev->running ||
 			    !(sd_status & SD_INT_COMPLETE))
 				continue;
@@ -1402,9 +1428,15 @@ static irqreturn_t azx_interrupt(int irq, void *dev_id)
 			ok = azx_position_ok(chip, azx_dev);
 			if (ok == 1) {
 				azx_dev->irq_pending = 0;
-				spin_unlock(&chip->reg_lock);
-				snd_pcm_period_elapsed(azx_dev->substream);
-				spin_lock(&chip->reg_lock);
+				
+				/* Check this, if fails, should still send ? */
+				if(sd_status & 0x4) 
+				{
+					spin_unlock(&chip->reg_lock);
+					snd_pcm_period_elapsed(azx_dev->substream);
+					spin_lock(&chip->reg_lock);
+				}
+				
 			} else if (ok == 0 && chip->bus && chip->bus->workq) {
 				/* bogus IRQ, process it later */
 				azx_dev->irq_pending = 1;
@@ -1427,8 +1459,8 @@ static irqreturn_t azx_interrupt(int irq, void *dev_id)
 
 #if 0
 	/* clear state status int */
-	if (azx_readb(chip, STATESTS) & 0x04)
-		azx_writeb(chip, STATESTS, 0x04);
+	if (azx_readw(chip, STATESTS) & 0x04)
+		azx_writew(chip, STATESTS, 0x04);
 #endif
 	spin_unlock(&chip->reg_lock);
 	
@@ -1554,20 +1586,20 @@ static void azx_stream_reset(struct azx *chip, struct azx_dev *azx_dev)
 
 	azx_stream_clear(chip, azx_dev);
 
-	azx_sd_writeb(azx_dev, SD_CTL, azx_sd_readb(azx_dev, SD_CTL) |
+	azx_sd_writel(azx_dev, SD_CTL, azx_sd_readl(azx_dev, SD_CTL) |
 		      SD_CTL_STREAM_RESET);
 	udelay(3);
 	timeout = 300;
-	while (!((val = azx_sd_readb(azx_dev, SD_CTL)) & SD_CTL_STREAM_RESET) &&
+	while (!((val = azx_sd_readl(azx_dev, SD_CTL)) & SD_CTL_STREAM_RESET) &&
 	       --timeout)
 		;
 	val &= ~SD_CTL_STREAM_RESET;
-	azx_sd_writeb(azx_dev, SD_CTL, val);
+	azx_sd_writel(azx_dev, SD_CTL, val);
 	udelay(3);
 
 	timeout = 300;
 	/* waiting for hardware to report that the stream is out of reset */
-	while (((val = azx_sd_readb(azx_dev, SD_CTL)) & SD_CTL_STREAM_RESET) &&
+	while (((val = azx_sd_readl(azx_dev, SD_CTL)) & SD_CTL_STREAM_RESET) &&
 	       --timeout)
 		;
 
@@ -2095,7 +2127,7 @@ static int azx_pcm_hw_free(struct snd_pcm_substream *substream)
 	if (!dsp_is_locked(azx_dev)) {
 		azx_sd_writel(azx_dev, SD_BDLPL, 0);
 		azx_sd_writel(azx_dev, SD_BDLPU, 0);
-		azx_sd_writel(azx_dev, SD_CTL, 0);
+		azx_sd_writel(azx_dev, SD_CTL, (azx_sd_readl(azx_dev, SD_CTL) & 0xff000000));
 		azx_dev->bufsize = 0;
 		azx_dev->period_bytes = 0;
 		azx_dev->format_val = 0;
@@ -2274,7 +2306,7 @@ static int azx_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 				if (s->pcm->card != substream->pcm->card)
 					continue;
 				azx_dev = get_azx_dev(s);
-				if (azx_sd_readb(azx_dev, SD_CTL) &
+				if (azx_sd_readl(azx_dev, SD_CTL) &
 				    SD_CTL_DMA_START)
 					nwait++;
 			}
@@ -2386,8 +2418,13 @@ static unsigned int azx_get_position(struct azx *chip,
 		pos = azx_via_get_position(chip, azx_dev);
 		break;
 	default:
-		/* use the position buffer */
-		pos = le32_to_cpu(*azx_dev->posbuf);
+		if (chip->driver_caps & AZX_DCAPS_CM8888_NAVICRON) {
+			pos = azx_sd_readl(azx_dev, SD_LPIB);
+		}
+		else
+			/* use the position buffer */
+			pos = le32_to_cpu(*azx_dev->posbuf);
+		
 		if (with_check && chip->position_fix[stream] == POS_FIX_AUTO) {
 			if (!pos || pos == (u32)-1) {
 				printk(KERN_WARNING
@@ -2794,7 +2831,7 @@ static void azx_load_dsp_cleanup(struct hda_bus *bus,
 	/* reset BDL address */
 	azx_sd_writel(azx_dev, SD_BDLPL, 0);
 	azx_sd_writel(azx_dev, SD_BDLPU, 0);
-	azx_sd_writel(azx_dev, SD_CTL, 0);
+	azx_sd_writel(azx_dev, SD_CTL, (azx_sd_readl(azx_dev, SD_CTL) & 0xff000000));
 	azx_dev->bufsize = 0;
 	azx_dev->period_bytes = 0;
 	azx_dev->format_val = 0;
@@ -2920,6 +2957,12 @@ static int azx_resume(struct device *dev)
 		snd_card_disconnect(card);
 		return -EIO;
 	}
+	
+	if (!(pci_resource_flags(pci, 0) & IORESOURCE_MEM)) {
+		printk(KERN_ERR "Incorrect BAR configuration !!!\n");
+		return -EIO;
+	}
+
 	pci_set_master(pci);
 	if (chip->msi)
 		if (pci_enable_msi(pci) < 0)
@@ -3147,6 +3190,9 @@ static int azx_free(struct azx *chip)
 		free_irq(chip->irq, (void*)chip);
 	if (chip->msi)
 		pci_disable_msi(chip->pci);
+	
+	pci_clear_master(chip->pci);
+
 	if (chip->remap_addr)
 		iounmap(chip->remap_addr);
 
@@ -3342,6 +3388,7 @@ static struct snd_pci_quirk msi_black_list[] = {
 	SND_PCI_QUIRK(0x1179, 0xfb44, "Toshiba Satellite C870", 0), /* AMD Hudson */
 	SND_PCI_QUIRK(0x1849, 0x0888, "ASRock", 0), /* Athlon64 X2 + nvidia */
 	SND_PCI_QUIRK(0xa0a0, 0x0575, "Aopen MZ915-M", 0), /* ICH6 */
+	SND_PCI_QUIRK(0x13f6, 0x5011, "CM8888", 0), /* CM8888 */
 	{}
 };
 
@@ -3394,6 +3441,10 @@ static void azx_check_snoop_available(struct azx *chip)
 	case AZX_DRIVER_CTHDA:
 		snoop = false;
 		break;
+	}
+
+	if (chip->driver_caps & AZX_DCAPS_CM8888_NAVICRON) {
+		snoop = false;
 	}
 
 	if (snoop != chip->snoop) {
@@ -4014,6 +4065,11 @@ static DEFINE_PCI_DEVICE_TABLE(azx_ids) = {
 	  .class = PCI_CLASS_MULTIMEDIA_HD_AUDIO << 8,
 	  .class_mask = 0xffffff,
 	  .driver_data = AZX_DRIVER_GENERIC | AZX_DCAPS_PRESET_ATI_HDMI },
+	{ PCI_DEVICE(0x13f6, 0x5011),
+	  .class = PCI_CLASS_MULTIMEDIA_HD_AUDIO << 8,
+	  .class_mask = 0xffffff,
+	  .driver_data = AZX_DRIVER_GENERIC | AZX_DCAPS_PRESET_CM8888,
+	},
 	{ 0, }
 };
 MODULE_DEVICE_TABLE(pci, azx_ids);
