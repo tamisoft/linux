@@ -22,7 +22,9 @@
 
 #include "common.h"
 #include "hardware.h"
-
+#ifdef CONFIG_MACH_MX53_SIGBOX
+#include "mach-mx53sigbox.h"
+#endif
 static void __init imx53_init_early(void)
 {
 	mxc_set_cpu_type(MXC_CPU_MX53);
@@ -42,6 +44,10 @@ static void __init imx53_init_late(void)
 	imx53_pm_init();
 
 	platform_device_register_simple("cpufreq-dt", -1, NULL, 0);
+
+#ifdef CONFIG_MACH_MX53_SIGBOX
+    imx53_sigbox_init();
+#endif
 }
 
 static const char * const imx53_dt_board_compat[] __initconst = {

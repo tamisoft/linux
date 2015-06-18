@@ -566,5 +566,9 @@ static void __init mx53_clocks_init(struct device_node *np)
 
 	r = clk_round_rate(clk[IMX5_CLK_USBOH3_PER_GATE], 54000000);
 	clk_set_rate(clk[IMX5_CLK_USBOH3_PER_GATE], r);
+#ifdef CONFIG_MACH_MX53_SIGBOX
+    clk_set_rate(clk[IMX5_CLK_SSI_EXT2_PODF], 24000000);
+    clk_prepare_enable(clk[IMX5_CLK_SSI_EXT2_GATE]);
+#endif
 }
 CLK_OF_DECLARE(imx53_ccm, "fsl,imx53-ccm", mx53_clocks_init);

@@ -508,6 +508,12 @@ config	SOC_IMX53
 	help
 	  This enables support for Freescale i.MX53 processor.
 
+config MACH_MX53_SIGBOX
+    bool "Sigbox support"
+    depends on SOC_IMX53
+    help
+      This enables custom board init for the Sigbox HW.
+
 config SOC_IMX6
 	bool
 	select ARM_ERRATA_754322
