@@ -99,6 +99,44 @@
 			gpio = <&gpio4 11 0>;
 			enable-active-high;
 		};
+/*		
+		reg_wifi_vddio: regulator@2 {
+			compatible = "regulator-fixed";
+			reg = <2>;
+			regulator-name = "wifi_vddio";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			gpio = <&gpio6 15 1>;
+			regulator-boot-on;
+			regulator-always-on;
+			enable-active-high;
+		};
+
+		reg_wifi_pwd: regulator@3 {
+			compatible = "regulator-fixed";
+			reg = <3>;
+			regulator-name = "wifi_pwd";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			gpio = <&gpio5 20 1>;
+			regulator-boot-on;
+			regulator-always-on;
+			enable-active-low;
+		};
+
+		reg_bt_pwd: regulator@4 {
+			compatible = "regulator-fixed";
+			reg = <4>;
+			regulator-name = "bt_pwd";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			gpio = <&gpio3 26 1>;
+			regulator-boot-on;
+			regulator-always-on;
+			enable-active-low;
+		};
+*/		
+
 	};
 /*
 	sound {
@@ -120,6 +158,12 @@
         status = "okay";
     };
 
+    rtc@53fa4000 {
+        compatible = "fsl,imx53-rtc", "fsl,imx25-rtc";
+        reg = <0x53fa4000 0x4000>;
+        interrupts = <29>;
+        status = "okay";
+    };
 
 };
 
@@ -131,7 +175,7 @@
 	status = "okay";
 };
 
-
+/* eMMC */
 &esdhc3 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_esdhc3>;
@@ -140,6 +184,27 @@
 	mmc-pwrseq = <&esdhc3_pwrseq>;
 	status = "okay";
 };
+
+/* Wifi */
+&esdhc1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_esdhc1>;
+	non-removable;
+	cap-sd-highspeed;
+	bus-width = <4>;
+	status = "okay";
+    wifivddio-supply = <&reg_wifi_vddio>;
+    wifipwd-supply = <&reg_wifi_pwd>;
+
+    wlan0: ath6kl {
+        cell-index = <0>;
+    	pinctrl-names = "default";
+	    pinctrl-0 = <&pinctrl_ar6233>;
+        compatible = "atheros,ath6kl";
+        atheros,board-id = "SD32";
+    };
+};
+
 
 
 &iomuxc {
@@ -179,12 +244,22 @@
             >;
         };
 
-		pinctrl_audmux: audmuxgrp {
+		pinctrl_btaudmux: btaudmuxgrp {
 			fsl,pins = <
-				MX53_PAD_KEY_COL0__AUDMUX_AUD5_TXC	0x80000000
-				MX53_PAD_KEY_ROW0__AUDMUX_AUD5_TXD	0x80000000
-				MX53_PAD_KEY_COL1__AUDMUX_AUD5_TXFS	0x80000000
-				MX53_PAD_KEY_ROW1__AUDMUX_AUD5_RXD	0x80000000
+				MX53_PAD_SD2_DATA3__AUDMUX_AUD4_TXC	 0x80000000 /* GPIO1_12 */
+				MX53_PAD_SD2_DATA2__AUDMUX_AUD4_TXD	 0x80000000 /* GPIO1_13 */
+				MX53_PAD_SD2_DATA1__AUDMUX_AUD4_TXFS 0x80000000 /* GPIO1_14 */
+				MX53_PAD_SD2_DATA0__AUDMUX_AUD4_RXD	 0x80000000 /* GPIO1_15 */
+			>;
+		};
+
+		pinctrl_ar6233: wifigrp {
+			fsl,pins = <
+				MX53_PAD_SD2_DATA3__AUDMUX_AUD4_TXC	 0x80000000 /* GPIO1_12 */
+				MX53_PAD_SD2_DATA2__AUDMUX_AUD4_TXD	 0x80000000 /* GPIO1_13 */
+				MX53_PAD_SD2_DATA1__AUDMUX_AUD4_TXFS 0x80000000 /* GPIO1_14 */
+				MX53_PAD_SD2_DATA0__AUDMUX_AUD4_RXD	 0x80000000 /* GPIO1_15 */
+				MX53_PAD_CSI0_DATA_EN__GPIO5_20      0x80000000 /* GPIO5_20 PWD */
 			>;
 		};
 
@@ -283,8 +358,16 @@
 				MX53_PAD_PATA_BUFFER_EN__UART2_RXD_MUX	0x1e4 /* GPIO7_1 */
 			>;
 		};
-		
-		
+
+		pinctrl_uart4: uart4grp {
+			fsl,pins = <
+				MX53_PAD_CSI0_DAT12__UART4_TXD_MUX	    0x1e4 /* GPIO5_30 */
+				MX53_PAD_CSI0_DAT13__UART4_RXD_MUX	    0x1e4 /* GPIO5_31 */
+				MX53_PAD_CSI0_DAT16__UART4_RTS          0x1e4 /* GPIO6_2  */
+				MX53_PAD_CSI0_DAT17__UART4_CTS          0x1e4 /* GPIO6_2  */
+				MX53_PAD_EIM_D26__GPIO3_26              0x80000000 /* GPIO3_26 BT_PWD*/
+			>;
+		};
 
 	};
 };
@@ -304,6 +387,14 @@
 	status = "okay";
 };
 
+&uart4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart4>;
+	btpwd-supply = <&reg_bt_pwd>;
+	status = "okay";
+};
+
+
 &i2c1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_i2c1>;
@@ -318,7 +409,7 @@
 */
 &audmux {
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_audmux>;
+	pinctrl-0 = <&pinctrl_btaudmux>;
 	status = "okay";
 };
 
@@ -343,6 +434,8 @@
 &usbh1 {
 	vbus-supply = <&reg_usb_vbus>;
 	phy_type = "utmi";
+	disable-over-current;
+	external-vbus-divider;
 	status = "okay";
 };
 
