@@ -27,7 +27,8 @@
 		interface-pix-fmt = "rgb565";
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_ipu_disp0>;
-		status = "disabled";
+		hdmi-supply = <&reg_5v_hdmi>;
+		status = "okay";
 		display-timings {
 			claawvga {
 				native-mode;
@@ -99,6 +100,19 @@
 			gpio = <&gpio4 11 0>;
 			enable-active-high;
 		};
+
+		reg_5v_hdmi: regulator@2 {
+			compatible = "regulator-fixed";
+			reg = <2>;
+			regulator-name = "hdmi_5v";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			gpio = <&gpio7 2 0>;
+			regulator-boot-on;
+			regulator-always-on;
+			enable-active-high;
+		};
+
 /*		
 		reg_wifi_vddio: regulator@2 {
 			compatible = "regulator-fixed";
@@ -193,15 +207,15 @@
 	cap-sd-highspeed;
 	bus-width = <4>;
 	status = "okay";
-    wifivddio-supply = <&reg_wifi_vddio>;
+/*    wifivddio-supply = <&reg_wifi_vddio>;
     wifipwd-supply = <&reg_wifi_pwd>;
-
+*/
     wlan0: ath6kl {
         cell-index = <0>;
     	pinctrl-names = "default";
 	    pinctrl-0 = <&pinctrl_ar6233>;
         compatible = "atheros,ath6kl";
-        atheros,board-id = "SD32";
+        atheros,board-id = "NAVI";
     };
 };
 
@@ -378,7 +392,7 @@
 	fsl,tve-mode = "vga";
 	fsl,hsync-pin = <4>;
 	fsl,vsync-pin = <6>;
-	status = "okay";
+	status = "disabled";
 };
 
 &uart2 {
@@ -390,7 +404,7 @@
 &uart4 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart4>;
-	btpwd-supply = <&reg_bt_pwd>;
+/*	btpwd-supply = <&reg_bt_pwd>;*/
 	status = "okay";
 };
 

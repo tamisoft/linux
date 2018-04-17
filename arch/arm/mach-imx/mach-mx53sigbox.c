@@ -62,6 +62,10 @@ void __init imx53_sigbox_init(void)
     gpio_direction_input(IMX_GPIO_NR(3, 27));     // enable btgpio
     gpio_request(IMX_GPIO_NR(3, 30),"bt-host-wakeup");
     gpio_direction_input(IMX_GPIO_NR(3, 30));     // enable bt-host-wakeup
+    gpio_request(IMX_GPIO_NR(7, 2),"hdmi-5v-en");
+    gpio_direction_output(IMX_GPIO_NR(7, 2), 1); // enable hdmi 5v
+    gpio_request(IMX_GPIO_NR(1, 7),"hdmi-nreset");
+    gpio_direction_output(IMX_GPIO_NR(1, 7), 1); // enable hdmi
 
 /*    pr_info("Calling USB HUB config...");
     setup_iomux_usbhub();
